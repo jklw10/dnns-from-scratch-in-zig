@@ -250,9 +250,9 @@ fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
 }
 
 const roundsPerEp = 60000 / 100;
-const smoothing = 0.00001;
+const lr = 0.001;
+const smoothing = lr;
 //todo gradient average replaced with just .5 to see if it seems similar with regression values.
-const lr = 0.00001;
 const normlr = lr / 10.0;
 //best on its own: 0.0075;
 const lambda = 0.0075;
@@ -285,6 +285,7 @@ pub fn applyGradients(self: *Self) void {
         const awdiff = self.averageWeights[i] - self.weights[i];
         //const crossover = std.math.clamp(1.0 - ((g * lr - awdiff * avgPriority)), 0.0, 1.0);
         const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
+        //_ = gdiff;
         //const gdiff = 1.0 / (avgPriority + @abs(g - awdiff));
         self.weights[i] -= lr * g * gdiff; // * p; //* gadj; //* p;
 
@@ -297,9 +298,9 @@ pub fn applyGradients(self: *Self) void {
     for (0..self.outputSize) |o| {
         self.biases[o] -= lr * self.bias_grads[o]; // (self.bias_grads[o] + lambda * self.biases[o]);
     }
-    if (self.rounds >= roundsPerEp * 100) {
-        self.rounds = 0.0;
-        self.reinit(0.001);
-    }
+    //if (self.rounds >= roundsPerEp * 5) {
+    //    self.rounds = 0.0;
+    //    self.reinit(0.00);
+    //}
     self.biases = normalize(self.biases, self.normMulti, self.normBias, 0.01);
 }

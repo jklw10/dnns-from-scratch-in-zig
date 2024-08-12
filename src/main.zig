@@ -10,7 +10,7 @@ const gaussian = @import("gaussian.zig");
 const std = @import("std");
 const timer = false;
 
-const readfile = true;
+const readfile = false;
 const writeFile = true;
 
 const typesignature = "G25RRRR_G10R.f64";
@@ -18,7 +18,7 @@ const typesignature = "G25RRRR_G10R.f64";
 const graphfuncs = false;
 const reinit = true;
 
-const epoch = 1000;
+const epoch = 100;
 //todo perlayer configs
 
 pub fn main() !void {

@@ -1,6 +1,7 @@
 const layer = @import("layer.zig");
 const layerB = @import("layerBias.zig");
 const layerG = @import("layerGrok.zig");
+const layerX = @import("layerXor.zig");
 const nll = @import("nll.zig");
 const mnist = @import("mnist.zig");
 const relu = @import("relu.zig");
@@ -51,39 +52,41 @@ pub fn main() !void {
         },
     );
 
+    //TODO:, use xor
+
     //const l = [_]usize{100};
 
     const inputSize = 784;
     const outputSize = 10;
     const testImageCount = 10000;
     const layers = [_]layerDescriptor{ .{
-        .layer = .{ .LayerG = 25 },
-        .activation = .relu,
+        .layer = .{ .LayerX = 25 },
+        .activation = .none,
     }, .{
-        .layer = .{ .LayerG = 25 },
-        .activation = .relu,
+        .layer = .{ .LayerX = 25 },
+        .activation = .none,
     }, .{
-        .layer = .{ .LayerG = 25 },
-        .activation = .relu,
+        .layer = .{ .LayerX = 25 },
+        .activation = .none,
     }, .{
-        .layer = .{ .LayerG = 25 },
-        .activation = .relu,
+        .layer = .{ .LayerX = 25 },
+        .activation = .none,
     }, .{
-        .layer = .{ .LayerG = 10 },
-        .activation = .relu,
+        .layer = .{ .LayerX = (outputSize + 63) / 64 },
+        .activation = .none,
     } };
-    comptime var previousLayerSize = inputSize;
+    comptime var previousLayerSize = (inputSize + 63) / 64;
     var storage: [layers.len]layerStorage = undefined;
     var validationStorage: [layers.len]layerStorage = undefined;
     //var reader = std.io.limitedReader(file.reader(), (try file.stat()).size);
-    std.debug.assert(outputSize == switch (layers[storage.len - 1].layer) {
-        .Layer, .LayerB, .LayerG => |l| l,
-    });
+    //std.debug.assert((outputSize + 63) / 64 > switch (layers[storage.len - 1].layer) {
+    //    .Layer, .LayerB, .LayerG, .LayerX => |l| l,
+    //});
     var reader = std.io.bufferedReader(file.reader());
     // Prep NN
     inline for (layers, 0..) |lay, i| {
         const size = switch (lay.layer) {
-            .Layer, .LayerB, .LayerG => |size| size,
+            .Layer, .LayerB, .LayerG, .LayerX => |size| size,
         };
         storage[i] = try layerFromDescriptor(
             allocator,
@@ -118,14 +121,17 @@ pub fn main() !void {
 
     file.close();
 
+    //const loss: Loss = Loss{ .nll = try nll.init(allocator, batchSize, outputSize) };
+
     const k = try Neuralnet(
         &validationStorage,
         &storage,
         inputSize,
-        10,
+        //10,
         batchSize,
         epoch,
         allocator,
+        //loss,
     );
 
     if (writeFile) {
@@ -161,14 +167,20 @@ const Activation = union(uActivation) {
     gaussian: gaussian,
 };
 
+const Loss = union(enum) {
+    nll: nll,
+};
+
 const uLayer = union(enum) {
     LayerG: usize,
     LayerB: usize,
+    LayerX: usize,
     Layer: usize,
 };
 const Layer = union(enum) {
     LayerG: layerG,
     LayerB: layerB,
+    LayerX: layerX,
     Layer: layer,
 };
 
@@ -189,6 +201,7 @@ fn layerFromDescriptor(alloc: std.mem.Allocator, comptime desc: layerDescriptor,
         .Layer => layer,
         .LayerB => layerB,
         .LayerG => layerG,
+        .LayerX => layerX,
     };
     const lsize = switch (desc.layer) {
         inline else => |s| s,
@@ -202,10 +215,10 @@ fn layerFromDescriptor(alloc: std.mem.Allocator, comptime desc: layerDescriptor,
         ),
     };
     const layerType = switch (desc.layer) {
-        .Layer,
-        => Layer{ .Layer = ltt },
+        .Layer => Layer{ .Layer = ltt },
         .LayerB => Layer{ .LayerB = ltt },
         .LayerG => Layer{ .LayerG = ltt },
+        .LayerX => Layer{ .LayerX = ltt },
     };
     const activation = switch (desc.activation) {
         .relu => Activation{
@@ -237,26 +250,45 @@ fn layerFromDescriptor(alloc: std.mem.Allocator, comptime desc: layerDescriptor,
         .activation = activation,
     };
 }
+fn mnistToU64(image: []const f64, comptime inputSize: usize, alloc: std.mem.Allocator) ![]u64 {
+    const num_u64s = (inputSize + 63) / 64; // 784 pixels, 64 bits per u64
+    var imgout = try alloc.alloc(u64, image.len * num_u64s);
 
+    for (0..image.len) |pixel_index| {
+        const u64_index = pixel_index / 64;
+        const bit_index: u6 = @intCast(pixel_index % 64);
+
+        if (image[pixel_index] > 0.5) {
+            imgout[u64_index] |= @as(u64, 1) << bit_index;
+        }
+    }
+
+    return imgout;
+}
 pub fn Neuralnet(
     //comptime layers: []const layerDescriptor,
     validationStorage: []layerStorage,
     storage: []layerStorage,
     comptime inputSize: u32,
-    comptime outputSize: u32,
+    //comptime outputSize: u32,
     comptime batchSize: u32,
     comptime epochs: u32,
     allocator: std.mem.Allocator,
+    //lossf: Loss,
 ) ![]layerStorage {
-    const Loss = nll.NLL(outputSize);
-
     //const testImageCount = 10000;
 
+    //const loss = lossf.nll;
     // Get MNIST data
     const mnist_data = try mnist.readMnist(allocator);
     defer mnist_data.deinit(allocator);
 
-    var loss: Loss = try Loss.init(allocator, batchSize);
+    const trainingData = try mnistToU64(mnist_data.train_images, inputSize, allocator);
+    allocator.free(mnist_data.train_images);
+    const trainingLabels = mnist_data.train_labels;
+    const validationData = try mnistToU64(mnist_data.test_images, inputSize, allocator);
+    allocator.free(mnist_data.test_images);
+    const validationLabels = mnist_data.test_labels;
 
     const t = std.time.milliTimestamp();
     std.debug.print("Training... \n", .{});
@@ -277,27 +309,33 @@ pub fn Neuralnet(
         // Do training
         var i: usize = 0;
         while (i < 60000 / batchSize) : (i += 1) {
-
+            const num_u64s = (inputSize + 63) / 64; // 784 pixels, 64 bits per u64
             // Prep inputs and targets
-            const inputs = mnist_data.train_images[i * inputSize * batchSize .. (i + 1) * inputSize * batchSize];
-            const targets = mnist_data.train_labels[i * batchSize .. (i + 1) * batchSize];
+            const inputs = trainingData[i * num_u64s * batchSize .. (i + 1) * num_u64s * batchSize];
+            const targets = trainingLabels[i * batchSize .. (i + 1) * batchSize];
 
             // Go forward and get loss
 
             var previousLayerOut = inputs;
             for (storage) |*current| {
                 switch (current.layer) {
-                    inline else => |*currentLayer| {
+                    .LayerX => |*currentLayer| {
                         currentLayer.forward(previousLayerOut);
                         previousLayerOut = currentLayer.outputs;
                     },
+                    else => {},
+                    //inline else => |*currentLayer| {
+                    //    currentLayer.forward(previousLayerOut);
+                    //    previousLayerOut = currentLayer.outputs;
+                    //},
                 }
                 switch (current.activation) {
                     .none => {},
-                    inline else => |*currentActivation| {
-                        currentActivation.forward(previousLayerOut);
-                        previousLayerOut = currentActivation.fwd_out;
-                    },
+                    else => {},
+                    //inline else => |*currentActivation| {
+                    //    currentActivation.forward(previousLayerOut);
+                    //    previousLayerOut = currentActivation.fwd_out;
+                    //},
                 }
             }
             //if (i % (60000 / batchSize) == 1) {
@@ -306,28 +344,39 @@ pub fn Neuralnet(
             //    });
             //}
 
-            loss.nll(previousLayerOut, targets) catch |err| {
-                //std.debug.print("batch number: {}, time delta: {}ms\n", .{ i * batchSize, std.time.milliTimestamp() - t });
-                std.debug.print("loss err: {any}\n", .{
-                    averageArray(loss.loss),
-                });
-                return err;
-            };
-            var previousGradient = loss.input_grads;
+            //loss.nll(previousLayerOut, targets) catch |err| {
+            //    //std.debug.print("batch number: {}, time delta: {}ms\n", .{ i * batchSize, std.time.milliTimestamp() - t });
+            //    std.debug.print("loss err: {any}\n", .{
+            //        averageArray(loss.loss),
+            //    });
+            //    return err;
+            //};
+            var thing = [_]u64{0} ** batchSize;
+            var previousGradient: []u64 = thing[0..]; //loss.input_grads;
+            for (0..previousGradient.len) |asdfuck| {
+                previousGradient[asdfuck] = @as(u64, targets[asdfuck]);
+            }
             for (0..storage.len) |ni| {
                 const index = storage.len - ni - 1;
+                //std.debug.print("layer: {any}", .{index});
                 switch (storage[index].activation) {
                     .none => {},
-                    inline else => |*currentActivation| {
-                        currentActivation.backwards(previousGradient);
-                        previousGradient = currentActivation.bkw_out;
-                    },
+                    else => {},
+                    //inline else => |*currentActivation| {
+                    //    currentActivation.backwards(previousGradient);
+                    //    previousGradient = currentActivation.bkw_out;
+                    //},
                 }
                 switch (storage[index].layer) {
-                    inline else => |*currentLayer| {
+                    .LayerX => |*currentLayer| {
                         currentLayer.backwards(previousGradient);
                         previousGradient = currentLayer.input_grads;
                     },
+                    else => {},
+                    //inline else => |*currentLayer| {
+                    //    currentLayer.backwards(previousGradient);
+                    //    previousGradient = currentLayer.input_grads;
+                    //},
                 }
             }
             // Update network
@@ -344,60 +393,86 @@ pub fn Neuralnet(
         // Do validation
         i = 0;
         var correct: f64 = 0;
-        var b: usize = 0;
-        const inputs = mnist_data.test_images;
+        //var b: usize = 0;
+        const inputs = validationData;
 
         for (validationStorage, 0..) |*current, cur| {
             switch (current.layer) {
-                .Layer => |*currentLayer| {
-                    currentLayer.setWeights(storage[cur].layer.Layer.weights);
+                .LayerX => |*currentLayer| {
+                    currentLayer.setWeights(storage[cur].layer.LayerX.weights);
                 },
-                .LayerB => |*currentLayer| {
-                    currentLayer.setWeights(storage[cur].layer.LayerB.weights);
-                    currentLayer.setBiases(storage[cur].layer.LayerB.biases);
-                },
-                .LayerG => |*currentLayer| {
-                    currentLayer.setWeights(storage[cur].layer.LayerG.weights);
-                    currentLayer.setBiases(storage[cur].layer.LayerG.biases);
-                },
+                else => {},
+                //.Layer => |*currentLayer| {
+                //    currentLayer.setWeights(storage[cur].layer.Layer.weights);
+                //},
+                //.LayerB => |*currentLayer| {
+                //    currentLayer.setWeights(storage[cur].layer.LayerB.weights);
+                //    currentLayer.setBiases(storage[cur].layer.LayerB.biases);
+                //},
+                //.LayerG => |*currentLayer| {
+                //    currentLayer.setWeights(storage[cur].layer.LayerG.weights);
+                //    currentLayer.setBiases(storage[cur].layer.LayerG.biases);
+                //},
             }
         }
         var previousLayerOut = inputs;
         for (validationStorage) |*current| {
+            //std.debug.print("layer: {any}", .{cur});
             switch (current.layer) {
-                inline else => |*currentLayer| {
+                .LayerX => |*currentLayer| {
                     currentLayer.forward(previousLayerOut);
                     previousLayerOut = currentLayer.outputs;
                 },
+                else => {},
+                //inline else => |*currentLayer| {
+                //    currentLayer.forward(previousLayerOut);
+                //    previousLayerOut = currentLayer.outputs;
+                //},
             }
             switch (current.activation) {
                 .none => {},
-                inline else => |*currentActivation| {
-                    currentActivation.forward(previousLayerOut);
-                    previousLayerOut = currentActivation.fwd_out;
-                },
+                else => {},
+                //inline else => |*currentActivation| {
+                //    currentActivation.forward(previousLayerOut);
+                //    previousLayerOut = currentActivation.fwd_out;
+                //},
+            }
+        }
+        var thing = [_]u64{0} ** 10000;
+        var Label: []u64 = thing[0..]; //loss.input_grads;
+
+        var guesses: f64 = 0;
+        for (0..Label.len) |asdfuck| {
+            Label[asdfuck] = @as(u64, validationLabels[asdfuck]);
+            if (previousLayerOut[0] == Label[asdfuck]) {
+                correct += 1;
+            }
+            if (previousLayerOut[0] != 0) {
+                guesses += 1;
             }
         }
 
-        while (b < 10000) : (b += 1) {
-            var max_guess: f64 = std.math.floatMin(f64);
-            var guess_index: usize = 0;
-            for (previousLayerOut[b * outputSize .. (b + 1) * outputSize], 0..) |o, oi| {
-                if (o > max_guess) {
-                    max_guess = o;
-                    guess_index = oi;
-                }
-            }
-            if (guess_index == mnist_data.test_labels[b]) {
-                correct += 1;
-            }
-        }
+        //while (b < 10000) : (b += 1) {
+        //    var max_guess: f64 = std.math.floatMin(f64);
+        //    var guess_index: usize = 0;
+        //    for (previousLayerOut[b * outputSize .. (b + 1) * outputSize], 0..) |o, oi| {
+        //        if (o > max_guess) {
+        //            max_guess = o;
+        //            guess_index = oi;
+        //        }
+        //    }
+        //    if (guess_index == validationLabels[b]) {
+        //        correct += 1;
+        //    }
+        //}
         correct = correct / 10000;
+        guesses /= 10000;
         if (timer) {
             std.debug.print("time total: {}ms\n", .{std.time.milliTimestamp() - t});
         }
 
         std.debug.print("{}\n", .{correct});
+        std.debug.print("{}\n", .{guesses});
     }
     const ct = std.time.milliTimestamp();
     std.debug.print(" time total: {}ms\n", .{ct - t});

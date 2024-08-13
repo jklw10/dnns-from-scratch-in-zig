@@ -54,8 +54,54 @@ pub fn deinitBackwards(self: *Self, alloc: std.mem.Allocator) void {
     alloc.free(self.weight_grads);
     alloc.free(self.input_grads);
 }
+fn circularShiftLeft(arr: []const u64, shift: usize) u64 {
+    const numBits: u6 = 63;
+
+    // Calculate the index in the array and the bit shift within that u64
+    const arrayIndex: usize = @as(usize, @intCast(shift / numBits));
+    const bitShift: u6 = @as(u6, @intCast(shift % numBits));
+
+    // Perform the shift on the relevant u64
+    var result: u64 = (arr[arrayIndex] << bitShift);
+
+    // Add bits from the next element, with wrapping if necessary
+    if (arrayIndex + 1 < arr.len) {
+        result |= (arr[arrayIndex + 1] >> (numBits - bitShift));
+    } else {
+        // Wrap around to the first element if at the end of the array
+        result |= (arr[0] >> (numBits - bitShift));
+    }
+
+    return result;
+}
+
+fn circularShiftRight(arr: []const u64, shift: usize) u64 {
+    const numBits: u8 = 64;
+
+    // Calculate the index in the array and the bit shift within that u64
+    const arrayIndex: usize = @as(usize, @intCast(shift / numBits));
+    const bitShift: u8 = shift % numBits;
+
+    // Perform the shift on the relevant u64
+    var result: u64 = (arr[arrayIndex] >> bitShift);
+
+    // Add bits from the previous element, with wrapping if necessary
+    if (bitShift > 0) {
+        if (arrayIndex > 0) {
+            result |= (arr[arrayIndex - 1] << (numBits - bitShift));
+        } else {
+            // Wrap around to the last element if at the start of the array
+            result |= (arr[arr.len - 1] << (numBits - bitShift));
+        }
+    }
+
+    return result;
+}
 pub fn forward(self: *Self, inputs: []const u64) void {
-    std.debug.assert(inputs.len == self.inputSize * self.batchSize);
+    //if (inputs.len != self.inputSize * self.batchSize)
+    //    std.debug.print("asd: {any}, {any}, {any}", .{ inputs.len, self.inputSize, self.batchSize });
+
+    //std.debug.assert(inputs.len == self.inputSize * self.batchSize);
     var b: usize = 0;
     while (b < self.batchSize) : (b += 1) {
         var o: usize = 0;
@@ -63,7 +109,7 @@ pub fn forward(self: *Self, inputs: []const u64) void {
             var result: u64 = 0;
             var i: usize = 0;
             while (i < self.inputSize) : (i += 1) {
-                result ^= inputs[b * self.inputSize + i] ^ self.weights[self.outputSize * i + o];
+                result ^= circularShiftLeft(inputs, self.outputSize * i + o) ^ self.weights[self.outputSize * i + o];
             }
             self.outputs[b * self.outputSize + o] = result;
         }
@@ -74,6 +120,8 @@ pub fn forward(self: *Self, inputs: []const u64) void {
 pub fn backwards(self: *Self, wanted_outputs: []u64) void {
     std.debug.assert(wanted_outputs.len == self.outputSize * self.batchSize);
 
+    @memset(self.input_grads, 0);
+    @memset(self.weight_grads, 0);
     var b: usize = 0;
     while (b < self.batchSize) : (b += 1) {
         var i: usize = 0;
@@ -86,17 +134,21 @@ pub fn backwards(self: *Self, wanted_outputs: []u64) void {
                 // Calculate the XOR gradient
                 const xor_grad = err ^ self.weights[i * self.outputSize + o];
 
-                // Update weight gradients (optional if you need accumulation)
-                self.weight_grads[i * self.outputSize + o] = xor_grad;
+                // Update weight gradients
+                self.weight_grads[i * self.outputSize + o] &= xor_grad;
+
+                const nw = self.weights[i * self.outputSize + o] ^ self.weight_grads[i * self.outputSize + o];
+                //TODO: check the shift correctness and step reverse correctness, try to AND batches together.
+
+                self.input_grads[b * self.inputSize + i] ^= circularShiftLeft(self.last_inputs, self.outputSize * i + o) ^ nw;
             }
         }
     }
 }
 
 pub fn applyGradients(self: *Self) void {
-    // You could either apply the gradients here or directly in the backwards pass.
     var i: usize = 0;
     while (i < self.inputSize * self.outputSize) : (i += 1) {
-        self.weights[i] ^= self.weight_grads[i]; // Example operation
+        self.weights[i] ^= self.weight_grads[i];
     }
 }

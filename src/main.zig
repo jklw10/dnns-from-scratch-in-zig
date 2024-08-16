@@ -265,6 +265,17 @@ fn mnistToU64(image: []const f64, comptime inputSize: usize, alloc: std.mem.Allo
 
     return imgout;
 }
+fn relabel(label: []const u8, alloc: std.mem.Allocator) ![]u10 {
+    var imgout = try alloc.alloc(u10, label.len);
+
+    for (0..label.len) |i| {
+        imgout[i] = @as(u10, 1) << @as(u4, @intCast(label[i]));
+
+        //std.debug.print("{any}, ", .{@as(u10, @intCast(imgout[i]))});
+    }
+
+    return imgout;
+}
 pub fn Neuralnet(
     //comptime layers: []const layerDescriptor,
     validationStorage: []layerStorage,
@@ -284,11 +295,11 @@ pub fn Neuralnet(
     defer mnist_data.deinit(allocator);
 
     const trainingData = try mnistToU64(mnist_data.train_images, inputSize, allocator);
-    allocator.free(mnist_data.train_images);
-    const trainingLabels = mnist_data.train_labels;
+    const trainingLabels = try relabel(mnist_data.train_labels, allocator);
     const validationData = try mnistToU64(mnist_data.test_images, inputSize, allocator);
+    const validationLabels = try relabel(mnist_data.test_labels, allocator);
+    allocator.free(mnist_data.train_images);
     allocator.free(mnist_data.test_images);
-    const validationLabels = mnist_data.test_labels;
 
     const t = std.time.milliTimestamp();
     std.debug.print("Training... \n", .{});
@@ -444,7 +455,9 @@ pub fn Neuralnet(
         var guesses: f64 = 0;
         for (0..Label.len) |asdfuck| {
             Label[asdfuck] = @as(u64, validationLabels[asdfuck]);
-            if (previousLayerOut[0] == Label[asdfuck]) {
+            //_ = Label;
+            std.debug.print("{any}, ", .{@as(u10, @intCast(previousLayerOut[0]))});
+            if (@as(u10, @intCast(previousLayerOut[0])) == validationLabels[asdfuck]) {
                 correct += 1;
             }
             if (previousLayerOut[0] != 0) {

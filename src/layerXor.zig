@@ -122,12 +122,9 @@ pub fn backwards(self: *Self, wanted_outputs: []u64) void {
 
     @memset(self.input_grads, 0);
     @memset(self.weight_grads, 0);
-    var b: usize = 0;
-    while (b < self.batchSize) : (b += 1) {
-        var i: usize = 0;
-        while (i < self.inputSize) : (i += 1) {
-            var o: usize = 0;
-            while (o < self.outputSize) : (o += 1) {
+    for (0..self.inputSize) |i| {
+        for (0..self.outputSize) |o| {
+            for (0..self.batchSize) |b| {
                 // Calculate the error (XOR between wanted output and current output)
                 const err = wanted_outputs[b * self.outputSize + o] ^ self.outputs[b * self.outputSize + o];
 

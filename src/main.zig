@@ -4,6 +4,7 @@ const layerG = @import("layerGrok.zig");
 const nll = @import("nll.zig");
 const mnist = @import("mnist.zig");
 const relu = @import("relu.zig");
+const reloid = @import("reloid.zig");
 const pyramid = @import("pyramid.zig");
 const gaussian = @import("gaussian.zig");
 
@@ -56,21 +57,22 @@ pub fn main() !void {
     const inputSize = 784;
     const outputSize = 10;
     const testImageCount = 10000;
+    const default = uActivation.reloid;
     const layers = [_]layerDescriptor{ .{
         .layer = .{ .LayerG = 25 },
-        .activation = .relu,
+        .activation = default,
     }, .{
         .layer = .{ .LayerG = 25 },
-        .activation = .relu,
+        .activation = default,
     }, .{
         .layer = .{ .LayerG = 25 },
-        .activation = .relu,
+        .activation = default,
     }, .{
         .layer = .{ .LayerG = 25 },
-        .activation = .relu,
+        .activation = default,
     }, .{
         .layer = .{ .LayerG = 10 },
-        .activation = .relu,
+        .activation = default,
     } };
     comptime var previousLayerSize = inputSize;
     var storage: [layers.len]layerStorage = undefined;
@@ -152,6 +154,7 @@ const uActivation = enum {
     relu,
     pyramid,
     gaussian,
+    reloid,
 };
 
 const Activation = union(uActivation) {
@@ -159,6 +162,7 @@ const Activation = union(uActivation) {
     relu: relu,
     pyramid: pyramid,
     gaussian: gaussian,
+    reloid: reloid,
 };
 
 const uLayer = union(enum) {
@@ -210,6 +214,13 @@ fn layerFromDescriptor(alloc: std.mem.Allocator, comptime desc: layerDescriptor,
     const activation = switch (desc.activation) {
         .relu => Activation{
             .relu = try relu.init(
+                alloc,
+                batchSize,
+                lsize,
+            ),
+        },
+        .reloid => Activation{
+            .reloid = try reloid.init(
                 alloc,
                 batchSize,
                 lsize,

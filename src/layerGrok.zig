@@ -285,7 +285,7 @@ pub fn applyGradients(self: *Self) void {
         const awdiff = self.averageWeights[i] - self.weights[i];
         //const crossover = std.math.clamp(1.0 - ((g * lr - awdiff * avgPriority)), 0.0, 1.0);
         const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
-        //_ = gdiff;
+
         //const gdiff = 1.0 / (avgPriority + @abs(g - awdiff));
         self.weights[i] -= lr * g * gdiff; // * p; //* gadj; //* p;
 

@@ -271,7 +271,8 @@ fn relabel(label: []const u8, alloc: std.mem.Allocator) ![]u10 {
     for (0..label.len) |i| {
         imgout[i] = @as(u10, 1) << @as(u4, @intCast(label[i]));
 
-        //std.debug.print("{any}, ", .{@as(u10, @intCast(imgout[i]))});
+        //
+        std.debug.print("{any}, ", .{@as(u10, @intCast(imgout[i]))});
     }
 
     return imgout;

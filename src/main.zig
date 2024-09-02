@@ -17,7 +17,7 @@ const writeFile = true;
 const typesignature = "G25RRRR_G10R.f64";
 
 const graphfuncs = false;
-const reinit = true;
+const reinit = false;
 
 const epoch = 100;
 //todo perlayer configs
@@ -57,19 +57,19 @@ pub fn main() !void {
     const inputSize = 784;
     const outputSize = 10;
     const testImageCount = 10000;
-    const default = uActivation.reloid;
+    const default = uActivation.relu;
     const layers = [_]layerDescriptor{ .{
         .layer = .{ .LayerG = 25 },
         .activation = default,
     }, .{
         .layer = .{ .LayerG = 25 },
-        .activation = default,
+        .activation = .reloid,
     }, .{
         .layer = .{ .LayerG = 25 },
-        .activation = default,
+        .activation = .reloid,
     }, .{
         .layer = .{ .LayerG = 25 },
-        .activation = default,
+        .activation = .reloid,
     }, .{
         .layer = .{ .LayerG = 10 },
         .activation = default,
@@ -107,7 +107,7 @@ pub fn main() !void {
                 .LayerG => |*l| {
                     try l.readParams(&reader);
                     if (reinit) {
-                        l.reinit(0.000);
+                        l.reinit(1.000);
                     }
                 },
                 inline else => |*l| {
@@ -272,8 +272,7 @@ pub fn Neuralnet(
     const t = std.time.milliTimestamp();
     std.debug.print("Training... \n", .{});
     // Do training
-    var e: usize = 0;
-    while (e < epochs) : (e += 1) {
+    for (0..epochs) |_| {
         //if (e % 50 == 0) {
         //    std.debug.print("Reinit \n", .{});
         //    for (storage, 0..) |_, i| {
@@ -286,8 +285,8 @@ pub fn Neuralnet(
         //    }
         //}
         // Do training
-        var i: usize = 0;
-        while (i < 60000 / batchSize) : (i += 1) {
+
+        for (0..60000 / batchSize) |i| {
 
             // Prep inputs and targets
             const inputs = mnist_data.train_images[i * inputSize * batchSize .. (i + 1) * inputSize * batchSize];
@@ -353,9 +352,7 @@ pub fn Neuralnet(
         }
 
         // Do validation
-        i = 0;
         var correct: f64 = 0;
-        var b: usize = 0;
         const inputs = mnist_data.test_images;
 
         for (validationStorage, 0..) |*current, cur| {
@@ -390,7 +387,7 @@ pub fn Neuralnet(
             }
         }
 
-        while (b < 10000) : (b += 1) {
+        for (0..10000) |b| {
             var max_guess: f64 = std.math.floatMin(f64);
             var guess_index: usize = 0;
             for (previousLayerOut[b * outputSize .. (b + 1) * outputSize], 0..) |o, oi| {

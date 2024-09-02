@@ -9,6 +9,7 @@ last_inputs: []const f64,
 outputs: []f64,
 weight_grads: []f64,
 averageWeights: []f64,
+averageBiases: []f64,
 bias_grads: []f64,
 input_grads: []f64,
 batchSize: usize,
@@ -39,6 +40,7 @@ pub fn readParams(self: *Self, params: anytype) !void {
     _ = try params.read(std.mem.sliceAsBytes(self.biases));
 
     _ = try params.read(std.mem.sliceAsBytes(self.averageWeights));
+    _ = try params.read(std.mem.sliceAsBytes(self.averageBiases));
     _ = try params.read(std.mem.asBytes(&self.normMulti));
     _ = try params.read(std.mem.asBytes(&self.normBias));
 }
@@ -47,6 +49,7 @@ pub fn writeParams(self: *Self, params: anytype) !void {
     _ = try params.writeAll(std.mem.sliceAsBytes(self.biases));
 
     _ = try params.writeAll(std.mem.sliceAsBytes(self.averageWeights));
+    _ = try params.writeAll(std.mem.sliceAsBytes(self.averageBiases));
     _ = try params.writeAll(std.mem.asBytes(&self.normMulti));
     _ = try params.writeAll(std.mem.asBytes(&self.normBias));
 }
@@ -54,20 +57,6 @@ var prng = std.Random.DefaultPrng.init(123);
 
 pub fn reinit(self: *Self, percent: f64) void {
     const wa = stats(self.weights);
-    //const ba = stats(self.biases);
-    //if (usedrop) {
-    //    self.rounds += 1.0;
-    //    if (self.rounds >= batchdropskip) {
-    //        //std.debug.print("round 10", .{});
-    //        self.rounds = 0.0; //todo move from being perbatch to per epoch, etc.
-    //        for (0..self.inputSize) |i| {
-    //            for (0..self.outputSize) |o| {
-    //                //const d: f64 = @as(f64, @floatFromInt(self.outputSize * i + o + 1)) / @as(f64, @floatFromInt(self.outputSize * self.inputSize));
-    //                self.dropOut[self.outputSize * i + o] = prng.random().float(f64) >= dropOutRate; // / (d * 2);
-    //            }
-    //        }
-    //    }
-    //}
     //std.debug.print("stats: {any}", .{wa});
     for (0..self.inputSize * self.outputSize) |w| {
         const sqrI = @sqrt(2.0 / @as(f64, @floatFromInt(self.inputSize)));
@@ -77,15 +66,13 @@ pub fn reinit(self: *Self, percent: f64) void {
         //self.weights[w] = (wa.avg/ 2) + prng.random().floatNorm(f64) * dev;
         //const rand = prng.random().floatNorm(f64);
         //self.weights[w] = std.math.sign(rand) * wa.avgabs + rand * dev; //0 ring.
-
-        //todo: try kill avg
     }
 
     //@memcpy(self.averageWeights, self.weights);
-    //todo: try with and without.
 
+    const bs = stats(self.biases);
     for (0..self.outputSize) |b| {
-        self.biases[b] = prng.random().floatNorm(f64) * 0.2;
+        self.biases[b] = self.averageBiases[b] + prng.random().floatNorm(f64) * bs.range;
     }
 }
 pub fn init(
@@ -105,13 +92,15 @@ pub fn init(
         weights[w] = prng.random().floatNorm(f64) * @sqrt(2.0 / dev);
     }
     for (0..outputSize) |b| {
-        biases[b] = prng.random().floatNorm(f64) * 0.2;
+        biases[b] = prng.random().floatNorm(f64) * 0.01; //good value, great value, one of the greatest.
     }
-    const wg = try alloc.alloc(f64, inputSize * outputSize);
+    const aw = try alloc.alloc(f64, inputSize * outputSize);
+    const ab = try alloc.alloc(f64, outputSize);
     //for (0..inputSize * outputSize) |b| {
     //    wg[b] = prng.random().floatNorm(f64) * 0.2;
     //}
-    @memcpy(wg, weights);
+    @memcpy(aw, weights);
+    @memcpy(ab, biases);
     return Self{
         .dropOut = try alloc.alloc(bool, inputSize * outputSize),
         .weights = weights,
@@ -119,7 +108,8 @@ pub fn init(
         .last_inputs = undefined,
         .outputs = try alloc.alloc(f64, outputSize * batchSize),
         .weight_grads = try alloc.alloc(f64, inputSize * outputSize),
-        .averageWeights = wg,
+        .averageWeights = aw,
+        .averageBiases = ab,
         .bias_grads = try alloc.alloc(f64, outputSize),
         .input_grads = try alloc.alloc(f64, inputSize * batchSize),
         .batchSize = batchSize,
@@ -252,16 +242,23 @@ fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
 const roundsPerEp = 60000 / 100;
 const lr = 0.001;
 const smoothing = lr;
-//todo gradient average replaced with just .5 to see if it seems similar with regression values.
 const normlr = lr / 10.0;
+
 //best on its own: 0.0075;
 const lambda = 0.0075;
 const elasticAlpha = 0.0;
+
 pub fn applyGradients(self: *Self) void {
-    const wavg = stats(self.weight_grads).avg;
-    const bavg = stats(self.bias_grads).avg;
-    self.normMulti -= wavg * normlr;
-    self.normBias -= bavg * normlr;
+    const awstat = stats(self.averageWeights);
+    const wstat = stats(self.weights);
+    const wgstat = stats(self.weight_grads);
+
+    const sharpness = 1 / (awstat.avgabs + wgstat.avgabs + @abs(awstat.avgabs - wstat.avgabs));
+    //const bavg = stats(self.biases).avgabs;
+
+    const bgavg = stats(self.bias_grads).avg;
+    self.normMulti -= wgstat.avg * normlr;
+    self.normBias -= bgavg * normlr;
     //todo: check for sanity?
 
     self.rounds += 1.0;
@@ -272,35 +269,41 @@ pub fn applyGradients(self: *Self) void {
     //    self.rounds = 0.0;
 
     for (0..self.inputSize * self.outputSize) |i| {
-        const l2 = lambda * self.weights[i];
+        const l2 = lambda * self.weights[i] * @abs(self.weights[i]);
         const l1 = lambda * std.math.sign(self.weights[i]);
 
         const EN = std.math.lerp(l2, l1, elasticAlpha);
-        //_ = EN;
-        const g = self.weight_grads[i] + EN;
+        _ = EN;
+        const g = self.weight_grads[i]; // + EN;
         //todo, try normalize gradients.
         //weight average, use with lambda?
         //nudge towards it with \/ ?
 
         const awdiff = self.averageWeights[i] - self.weights[i];
-        //const crossover = std.math.clamp(1.0 - ((g * lr - awdiff * avgPriority)), 0.0, 1.0);
-        const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
-
-        //const gdiff = 1.0 / (avgPriority + @abs(g - awdiff));
-        self.weights[i] -= lr * g * gdiff; // * p; //* gadj; //* p;
+        //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
+        const gdiff = 1.0 / (@abs(self.averageWeights[i]) + @abs(g - awdiff));
+        _ = gdiff;
+        self.weights[i] -= lr * g * sharpness; // * p; //* gadj; //* p;
 
         const aw = self.averageWeights[i];
         self.averageWeights[i] = aw + (smoothing * (self.weights[i] - aw));
     }
 
-    //self.weights = normalize(self.weights, self.normMulti, self.normBias, 0.0001);
+    //self.weights = normalize(self.weights, self.normMulti, self.normBias, 0.001);
 
     for (0..self.outputSize) |o| {
-        self.biases[o] -= lr * self.bias_grads[o]; // (self.bias_grads[o] + lambda * self.biases[o]);
+        const g = self.bias_grads[o];
+        const abdiff = self.averageBiases[o] - self.biases[o];
+        const gdiff = 1.0 / (@abs(self.averageBiases[o]) + @abs(g - abdiff));
+        _ = gdiff;
+        self.biases[o] -= lr * g * sharpness; // (self.bias_grads[o] + lambda * self.biases[o]);
+
+        const ab = self.averageBiases[o];
+        self.averageBiases[o] = ab + (smoothing * (self.biases[o] - ab));
     }
     //if (self.rounds >= roundsPerEp * 5) {
     //    self.rounds = 0.0;
     //    self.reinit(0.00);
     //}
-    self.biases = normalize(self.biases, self.normMulti, self.normBias, 0.01);
+    //self.biases = normalize(self.biases, self.normMulti, self.normBias, 0.01);
 }

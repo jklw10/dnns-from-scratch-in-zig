@@ -31,45 +31,7 @@ pub fn main() !void {
     // Get MNIST data
 
     const dataset = if (true) blk: {
-        const mnist_train_images_path: []const u8 = "data/mnist/train-images.idx3-ubyte";
-        const mnist_train_labels_path: []const u8 = "data/mnist/train-labels.idx1-ubyte";
-        const mnist_test_images_path: []const u8 = "data/mnist/t10k-images.idx3-ubyte";
-        const mnist_test_labels_path: []const u8 = "data/mnist/t10k-labels.idx1-ubyte";
-
-        const inputSize = 784;
-        const outputSize = 10;
-        const dataSize = 60000;
-        const validationSize = 10000;
-        break :blk try dataSet.readData(
-            mnist_train_images_path,
-            mnist_train_labels_path,
-            mnist_test_images_path,
-            mnist_test_labels_path,
-            dataSize,
-            inputSize,
-            outputSize,
-            validationSize,
-            allocator,
-        );
-    } else blk: {
-        const mnist_train_images_path: []const u8 = "data/mnist/train-images.idx3-ubyte";
-        const mnist_train_labels_path: []const u8 = "data/mnist/train-labels.idx1-ubyte";
-        const mnist_test_images_path: []const u8 = "data/mnist/t10k-images.idx3-ubyte";
-        const mnist_test_labels_path: []const u8 = "data/mnist/t10k-labels.idx1-ubyte";
-
-        const inputSize = 784;
-        const outputSize = 10;
-        const dataSize = 60000;
-        const validationSize = 10000;
-        break :blk try dataSet.readData(
-            mnist_train_images_path,
-            mnist_train_labels_path,
-            mnist_test_images_path,
-            mnist_test_labels_path,
-            dataSize,
-            inputSize,
-            outputSize,
-            validationSize,
+        break :blk try dataSet.cifar.dtype.readData(
             allocator,
         );
     };
@@ -298,7 +260,7 @@ pub fn Neuralnet(
     storage: []layerStorage,
     comptime batchSize: u32,
     comptime epochs: u32,
-    dataset: dataSet.Data,
+    dataset: anytype,
     allocator: std.mem.Allocator,
 ) ![]layerStorage {
 

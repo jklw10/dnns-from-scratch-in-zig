@@ -1,81 +1,181 @@
 const std = @import("std");
 
-pub const Data = struct {
-    train_images: []f64,
-    train_labels: []u8,
-    test_images: []f64,
-    test_labels: []u8,
-    trainSize: usize,
-    inputSize: usize,
-    outputSize: usize,
-    validationSize: usize,
-    const Self = @This();
+pub fn Data(
+    comptime inputType: type,
+    comptime outputType: type,
+    comptime dataDefinition: type,
+) type {
+    return struct {
+        train_images: []inputType,
+        train_labels: []outputType,
+        test_images: []inputType,
+        test_labels: []outputType,
+        trainSize: usize,
+        inputSize: usize,
+        outputSize: usize,
+        validationSize: usize,
+        const Self = @This();
 
-    pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
-        allocator.free(self.train_images);
-        allocator.free(self.train_labels);
-        allocator.free(self.test_images);
-        allocator.free(self.test_labels);
-    }
-};
+        pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+            allocator.free(self.train_images);
+            allocator.free(self.train_labels);
+            allocator.free(self.test_images);
+            allocator.free(self.test_labels);
+        }
 
-pub fn readData(
-    train_images_path: []const u8,
-    train_labels_path: []const u8,
-    test_images_path: []const u8,
-    test_labels_path: []const u8,
-    trainSize: usize,
-    inputSize: usize,
-    outputSize: usize,
-    validationSize: usize,
-    allocator: std.mem.Allocator,
-) !Data {
-    const train_images_u8 = try readIdxFile(train_images_path, 16, allocator);
-    defer allocator.free(train_images_u8);
-    var train_images = try allocator.alloc(f64, inputSize * trainSize);
-    var i: u32 = 0;
-    while (i < inputSize * trainSize) : (i += 1) {
-        const x: f64 = @as(f64, @floatFromInt(train_images_u8[i]));
-        train_images[i] = x / 255;
-    }
+        pub fn readData(
+            allocator: std.mem.Allocator,
+        ) !Self {
+            const train_images = try readIdxFile(
+                inputType,
+                dataDefinition.ImageFormat,
+                dataDefinition.trainSize,
+                dataDefinition.train_images_path,
+                allocator,
+            );
 
-    const train_labels = try readIdxFile(train_labels_path, 8, allocator);
+            const train_labels = try readIdxFile(
+                outputType,
+                dataDefinition.LabelFormat,
+                dataDefinition.trainSize,
+                dataDefinition.train_labels_path,
+                allocator,
+            );
 
-    const test_images_u8 = try readIdxFile(test_images_path, 16, allocator);
-    defer allocator.free(test_images_u8);
-    var test_images = try allocator.alloc(f64, inputSize * validationSize);
-    i = 0;
-    while (i < inputSize * validationSize) : (i += 1) {
-        const x: f64 = @as(f64, @floatFromInt(test_images_u8[i]));
-        test_images[i] = x / 255;
-    }
+            const test_images = try readIdxFile(
+                inputType,
+                dataDefinition.ImageFormat,
+                dataDefinition.validationSize,
+                dataDefinition.test_images_path,
+                allocator,
+            );
 
-    const test_labels = try readIdxFile(test_labels_path, 8, allocator);
+            const test_labels = try readIdxFile(
+                outputType,
+                dataDefinition.LabelFormat,
+                dataDefinition.validationSize,
+                dataDefinition.test_labels_path,
+                allocator,
+            );
 
-    return Data{
-        .train_images = train_images,
-        .train_labels = train_labels,
-        .test_images = test_images,
-        .test_labels = test_labels,
-        .trainSize = trainSize,
-        .inputSize = inputSize,
-        .outputSize = outputSize,
-        .validationSize = validationSize,
+            return Self{
+                .train_images = train_images,
+                .train_labels = train_labels,
+                .test_images = test_images,
+                .test_labels = test_labels,
+                .trainSize = dataDefinition.trainSize,
+                .inputSize = dataDefinition.inputSize,
+                .outputSize = dataDefinition.outputSize,
+                .validationSize = dataDefinition.validationSize,
+            };
+        }
+
+        pub fn readIdxFile(
+            comptime t: type,
+            formatter: anytype,
+            count: usize,
+            path: []const u8,
+            allocator: std.mem.Allocator,
+        ) ![]t {
+            const file = try std.fs.cwd().openFile(
+                path,
+                .{},
+            );
+            defer file.close();
+
+            const reader = file.reader();
+            try reader.skipBytes(formatter.skipBytes, .{});
+
+            const data = try allocator.alloc(u8, formatter.size * count);
+
+            for (0..count) |i| {
+                reader.skipBytes(formatter.stride, .{}) catch {
+                    std.debug.print("fuck: {any}, should be {any}", .{ (i + 1) * formatter.size, formatter.size * count });
+                    return error.eof;
+                };
+                //reader.readUntilDelimiter(formatter.size);
+                reader.readNoEof(data[i * formatter.size .. (i + 1) * formatter.size]) catch {
+                    std.debug.print("fuck: {any}, should be {any}", .{ (i + 1) * formatter.size, formatter.size * count });
+                    return error.eof;
+                };
+            }
+
+            if (data.len != formatter.size * count) {
+                std.debug.print("fuck: {any}, should be {any}", .{ data.len, formatter.size * count });
+            }
+            defer allocator.free(data);
+            const train_images = try allocator.alloc(t, formatter.size * count);
+            formatter.format(t, train_images, data, count);
+
+            return train_images;
+        }
     };
 }
+pub const mnist = struct {
+    pub const train_images_path: []const u8 = "data/mnist/train-images.idx3-ubyte";
+    pub const train_labels_path: []const u8 = "data/mnist/train-labels.idx1-ubyte";
+    pub const test_images_path: []const u8 = "data/mnist/t10k-images.idx3-ubyte";
+    pub const test_labels_path: []const u8 = "data/mnist/t10k-labels.idx1-ubyte";
 
-pub fn readIdxFile(path: []const u8, skip_bytes: u8, allocator: std.mem.Allocator) ![]u8 {
-    const file = try std.fs.cwd().openFile(
-        path,
-        .{},
-    );
-    defer file.close();
+    pub const inputSize = 28 * 28;
+    pub const outputSize = 10;
+    pub const trainSize = 60000;
+    pub const validationSize = 10000;
 
-    const reader = file.reader();
-    try reader.skipBytes(skip_bytes, .{});
-    const data = reader.readAllAlloc(
-        allocator,
-        1000000000,
-    );
-    return data;
-}
+    pub const dtype = Data(f64, u8, @This());
+
+    pub const ImageFormat = struct {
+        const size = inputSize;
+        const skipBytes = 16;
+        const stride = 0;
+        pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
+            for (0..size * inputCount) |i| {
+                const x: out = @as(out, @floatFromInt(input[i]));
+                destination[i] = x / 255;
+            }
+        }
+    };
+    pub const LabelFormat = struct {
+        const size = 1;
+        const skipBytes = 8;
+        const stride = 0;
+        pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
+            _ = inputCount;
+            @memcpy(destination, input);
+        }
+    };
+};
+pub const cifar = struct {
+    pub const train_images_path: []const u8 = "data/cifar-10-batches-bin/data_batch_1.bin";
+    pub const train_labels_path: []const u8 = "data/cifar-10-batches-bin/data_batch_1.bin";
+    pub const test_images_path: []const u8 = "data/cifar-10-batches-bin/test_batch.bin";
+    pub const test_labels_path: []const u8 = "data/cifar-10-batches-bin/test_batch.bin";
+
+    pub const inputSize = 32 * 32 * 3;
+    pub const outputSize = 10;
+    pub const trainSize = 10000;
+    pub const validationSize = 10000;
+
+    pub const dtype = Data(f64, u8, @This());
+
+    pub const ImageFormat = struct {
+        const size = 32 * 32 * 3;
+        const skipBytes = 0;
+        const stride = 1;
+        pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
+            for (0..inputCount) |i| {
+                const x: out = @as(out, @floatFromInt(input[i]));
+                destination[i] = x / 255;
+            }
+        }
+    };
+    pub const LabelFormat = struct {
+        const size = 1;
+        const skipBytes = 0;
+        const stride = 3072;
+        pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
+            _ = inputCount;
+            @memcpy(destination, input);
+        }
+    };
+};

@@ -22,6 +22,8 @@ pub fn init(
     };
 }
 pub fn nll(self: *Self, inputs: []f64, targets: []u8) !void {
+    //todo make assert right.
+    if (inputs.len != 10 * 100) std.debug.print("should be equal {any} in, expect {any}", .{ inputs.len, 10 * 100 });
     for (0..self.batchSize) |b| {
         var sum: f64 = 0;
         var maxInput: f64 = -std.math.inf(f64);
@@ -51,7 +53,7 @@ pub fn nll(self: *Self, inputs: []f64, targets: []u8) !void {
         }
 
         if (GiveLoss) {
-            self.loss[b] = -1 * @log(std.math.exp(inputs[b * self.inputSize + targets[b]]) / sum);
+            //    self.loss[b] = -1 * @log(std.math.exp(inputs[b * self.inputSize] + targets[b]) / sum);
         }
         for (0..self.inputSize) |i| {
             self.input_grads[b * self.inputSize + i] = std.math.exp(inputs[b * self.inputSize + i] - maxInput) / sum;

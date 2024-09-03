@@ -253,6 +253,8 @@ pub fn applyGradients(self: *Self) void {
     const wstat = stats(self.weights);
     const wgstat = stats(self.weight_grads);
 
+    //const sharpness = 1 / (wgstat.avgabs + @abs(awstat.avgabs - wstat.avgabs));
+    //const r = 1 + prng.random().floatNorm(f64) / 10;
     const sharpness = 1 / (awstat.avgabs + wgstat.avgabs + @abs(awstat.avgabs - wstat.avgabs));
     //const bavg = stats(self.biases).avgabs;
 
@@ -281,9 +283,9 @@ pub fn applyGradients(self: *Self) void {
 
         const awdiff = self.averageWeights[i] - self.weights[i];
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
-        const gdiff = 1.0 / (@abs(self.averageWeights[i]) + @abs(g - awdiff));
-        _ = gdiff;
-        self.weights[i] -= lr * g * sharpness; // * p; //* gadj; //* p;
+        const gdiff = 1.0 / (@abs(@sin(self.averageWeights[i])) + @abs(g - awdiff));
+        //_ = gdiff;
+        self.weights[i] -= lr * g * gdiff; // * p; //* gadj; //* p;
 
         const aw = self.averageWeights[i];
         self.averageWeights[i] = aw + (smoothing * (self.weights[i] - aw));
@@ -295,8 +297,8 @@ pub fn applyGradients(self: *Self) void {
         const g = self.bias_grads[o];
         const abdiff = self.averageBiases[o] - self.biases[o];
         const gdiff = 1.0 / (@abs(self.averageBiases[o]) + @abs(g - abdiff));
-        _ = gdiff;
-        self.biases[o] -= lr * g * sharpness; // (self.bias_grads[o] + lambda * self.biases[o]);
+        _ = sharpness;
+        self.biases[o] -= lr * g * gdiff; // (self.bias_grads[o] + lambda * self.biases[o]);
 
         const ab = self.averageBiases[o];
         self.averageBiases[o] = ab + (smoothing * (self.biases[o] - ab));

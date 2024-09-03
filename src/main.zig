@@ -2,7 +2,7 @@ const layer = @import("layer.zig");
 const layerB = @import("layerBias.zig");
 const layerG = @import("layerGrok.zig");
 const nll = @import("nll.zig");
-const mnist = @import("mnist.zig");
+const dataSet = @import("dataSet.zig");
 const relu = @import("relu.zig");
 const reloid = @import("reloid.zig");
 const pyramid = @import("pyramid.zig");
@@ -28,6 +28,55 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
+    // Get MNIST data
+
+    const dataset = if (true) blk: {
+        const mnist_train_images_path: []const u8 = "data/mnist/train-images.idx3-ubyte";
+        const mnist_train_labels_path: []const u8 = "data/mnist/train-labels.idx1-ubyte";
+        const mnist_test_images_path: []const u8 = "data/mnist/t10k-images.idx3-ubyte";
+        const mnist_test_labels_path: []const u8 = "data/mnist/t10k-labels.idx1-ubyte";
+
+        const inputSize = 784;
+        const outputSize = 10;
+        const dataSize = 60000;
+        const validationSize = 10000;
+        break :blk try dataSet.readData(
+            mnist_train_images_path,
+            mnist_train_labels_path,
+            mnist_test_images_path,
+            mnist_test_labels_path,
+            dataSize,
+            inputSize,
+            outputSize,
+            validationSize,
+            allocator,
+        );
+    } else blk: {
+        const mnist_train_images_path: []const u8 = "data/mnist/train-images.idx3-ubyte";
+        const mnist_train_labels_path: []const u8 = "data/mnist/train-labels.idx1-ubyte";
+        const mnist_test_images_path: []const u8 = "data/mnist/t10k-images.idx3-ubyte";
+        const mnist_test_labels_path: []const u8 = "data/mnist/t10k-labels.idx1-ubyte";
+
+        const inputSize = 784;
+        const outputSize = 10;
+        const dataSize = 60000;
+        const validationSize = 10000;
+        break :blk try dataSet.readData(
+            mnist_train_images_path,
+            mnist_train_labels_path,
+            mnist_test_images_path,
+            mnist_test_labels_path,
+            dataSize,
+            inputSize,
+            outputSize,
+            validationSize,
+            allocator,
+        );
+    };
+
+    //const dataset = try dataSet.readMnist(allocator);
+    defer dataset.deinit(allocator);
+
     if (graphfuncs) {
         var inputs: [200]f64 = undefined;
         var pyr = try gaussian.init(allocator, 1, 200);
@@ -52,11 +101,6 @@ pub fn main() !void {
         },
     );
 
-    //const l = [_]usize{100};
-
-    const inputSize = 784;
-    const outputSize = 10;
-    const testImageCount = 10000;
     const default = uActivation.relu;
     const layers = [_]layerDescriptor{ .{
         .layer = .{ .LayerG = 25 },
@@ -74,11 +118,11 @@ pub fn main() !void {
         .layer = .{ .LayerG = 10 },
         .activation = default,
     } };
-    comptime var previousLayerSize = inputSize;
+    var previousLayerSize = dataset.inputSize;
     var storage: [layers.len]layerStorage = undefined;
     var validationStorage: [layers.len]layerStorage = undefined;
     //var reader = std.io.limitedReader(file.reader(), (try file.stat()).size);
-    std.debug.assert(outputSize == switch (layers[storage.len - 1].layer) {
+    std.debug.assert(dataset.outputSize == switch (layers[storage.len - 1].layer) {
         .Layer, .LayerB, .LayerG => |l| l,
     });
     var reader = std.io.bufferedReader(file.reader());
@@ -96,7 +140,7 @@ pub fn main() !void {
         validationStorage[i] = try layerFromDescriptor(
             allocator,
             lay,
-            testImageCount,
+            dataset.validationSize,
             previousLayerSize,
         );
         switch (validationStorage[i].layer) {
@@ -123,10 +167,9 @@ pub fn main() !void {
     const k = try Neuralnet(
         &validationStorage,
         &storage,
-        inputSize,
-        10,
         batchSize,
         epoch,
+        dataset,
         allocator,
     );
 
@@ -253,21 +296,15 @@ pub fn Neuralnet(
     //comptime layers: []const layerDescriptor,
     validationStorage: []layerStorage,
     storage: []layerStorage,
-    comptime inputSize: u32,
-    comptime outputSize: u32,
     comptime batchSize: u32,
     comptime epochs: u32,
+    dataset: dataSet.Data,
     allocator: std.mem.Allocator,
 ) ![]layerStorage {
-    const Loss = nll.NLL(outputSize);
 
     //const testImageCount = 10000;
 
-    // Get MNIST data
-    const mnist_data = try mnist.readMnist(allocator);
-    defer mnist_data.deinit(allocator);
-
-    var loss: Loss = try Loss.init(allocator, batchSize);
+    var loss = try nll.init(dataset.outputSize, batchSize, allocator);
 
     const t = std.time.milliTimestamp();
     std.debug.print("Training... \n", .{});
@@ -286,11 +323,11 @@ pub fn Neuralnet(
         //}
         // Do training
 
-        for (0..60000 / batchSize) |i| {
+        for (0..dataset.trainSize / batchSize) |i| {
 
             // Prep inputs and targets
-            const inputs = mnist_data.train_images[i * inputSize * batchSize .. (i + 1) * inputSize * batchSize];
-            const targets = mnist_data.train_labels[i * batchSize .. (i + 1) * batchSize];
+            const inputs = dataset.train_images[i * dataset.inputSize * batchSize .. (i + 1) * dataset.inputSize * batchSize];
+            const targets = dataset.train_labels[i * batchSize .. (i + 1) * batchSize];
 
             // Go forward and get loss
 
@@ -353,7 +390,7 @@ pub fn Neuralnet(
 
         // Do validation
         var correct: f64 = 0;
-        const inputs = mnist_data.test_images;
+        const inputs = dataset.test_images;
 
         for (validationStorage, 0..) |*current, cur| {
             switch (current.layer) {
@@ -387,20 +424,20 @@ pub fn Neuralnet(
             }
         }
 
-        for (0..10000) |b| {
+        for (0..dataset.validationSize) |b| {
             var max_guess: f64 = std.math.floatMin(f64);
             var guess_index: usize = 0;
-            for (previousLayerOut[b * outputSize .. (b + 1) * outputSize], 0..) |o, oi| {
+            for (previousLayerOut[b * dataset.outputSize .. (b + 1) * dataset.outputSize], 0..) |o, oi| {
                 if (o > max_guess) {
                     max_guess = o;
                     guess_index = oi;
                 }
             }
-            if (guess_index == mnist_data.test_labels[b]) {
+            if (guess_index == dataset.test_labels[b]) {
                 correct += 1;
             }
         }
-        correct = correct / 10000;
+        correct = correct / @as(f64, @floatFromInt(dataset.validationSize));
         if (timer) {
             std.debug.print("time total: {}ms\n", .{std.time.milliTimestamp() - t});
         }

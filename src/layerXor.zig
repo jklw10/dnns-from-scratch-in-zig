@@ -2,17 +2,18 @@ const std = @import("std");
 
 weights: []u64,
 last_inputs: []const u64,
-outputs: []u64,
+fwd_out: []u64,
 weight_grads: []u64, // = [1]f64{0} ** (inputSize * outputSize);
-input_grads: []u64, //= [1]f64{0} ** (batchSize * inputSize);
+bkw_out: []u64, //= [1]f64{0} ** (batchSize * inputSize);
 batchSize: usize,
 inputSize: usize,
 outputSize: usize,
 
 const Self = @This();
 //var outputs: [batchSize * outputSize]f64 = [1]f64{0} ** (batchSize * outputSize);
-pub fn setWeights(self: *Self, weights: []u64) void {
-    self.weights = weights;
+
+pub fn copyParams(self: *Self, other: Self) void {
+    self.weights = other.weights;
 }
 
 pub fn readParams(self: *Self, params: anytype) !void {
@@ -39,9 +40,9 @@ pub fn init(
     return Self{
         .weights = weights,
         .last_inputs = undefined,
-        .outputs = try alloc.alloc(u64, outputSize * batchSize),
+        .fwd_out = try alloc.alloc(u64, outputSize * batchSize),
         .weight_grads = try alloc.alloc(u64, inputSize * outputSize),
-        .input_grads = try alloc.alloc(u64, inputSize * batchSize),
+        .bkw_out = try alloc.alloc(u64, inputSize * batchSize),
         .batchSize = batchSize,
         .outputSize = outputSize,
         .inputSize = inputSize,
@@ -52,7 +53,7 @@ pub fn deinitBackwards(self: *Self, alloc: std.mem.Allocator) void {
     //alloc.free(self.last_inputs);
     //alloc.free(self.outputs);
     alloc.free(self.weight_grads);
-    alloc.free(self.input_grads);
+    alloc.free(self.bkw_out);
 }
 pub fn forward(self: *Self, inputs: []const u64) void {
     std.debug.assert(inputs.len == self.inputSize * self.batchSize);
@@ -65,7 +66,7 @@ pub fn forward(self: *Self, inputs: []const u64) void {
             while (i < self.inputSize) : (i += 1) {
                 result ^= inputs[b * self.inputSize + i] ^ self.weights[self.outputSize * i + o];
             }
-            self.outputs[b * self.outputSize + o] = result;
+            self.fwd_out[b * self.outputSize + o] = result;
         }
     }
     self.last_inputs = inputs;
@@ -81,7 +82,7 @@ pub fn backwards(self: *Self, wanted_outputs: []u64) void {
             var o: usize = 0;
             while (o < self.outputSize) : (o += 1) {
                 // Calculate the error (XOR between wanted output and current output)
-                const err = wanted_outputs[b * self.outputSize + o] ^ self.outputs[b * self.outputSize + o];
+                const err = wanted_outputs[b * self.outputSize + o] ^ self.fwd_out[b * self.outputSize + o];
 
                 // Calculate the XOR gradient
                 const xor_grad = err ^ self.weights[i * self.outputSize + o];

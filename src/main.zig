@@ -19,24 +19,16 @@ const typesignature = "G25RRRR_G10R.f64";
 const graphfuncs = false;
 const reinit = false;
 
-const epoch = 100;
+const epochs = 100;
+const batchSize = 100;
 //todo perlayer configs
 
 pub fn main() !void {
-    const batchSize = 100;
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     const allocator = gpa.allocator();
 
-    // Get MNIST data
-
-    const dataset = if (true) blk: {
-        break :blk try dataSet.cifar.dtype.readData(
-            allocator,
-        );
-    };
-
-    //const dataset = try dataSet.readMnist(allocator);
+    const dataset = try dataSet.mnist.dtype.readData(allocator);
     defer dataset.deinit(allocator);
 
     if (graphfuncs) {
@@ -63,47 +55,42 @@ pub fn main() !void {
         },
     );
 
-    const default = uActivation.relu;
-    const layers = [_]layerDescriptor{ .{
-        .layer = .{ .LayerG = 25 },
-        .activation = default,
-    }, .{
-        .layer = .{ .LayerG = 25 },
-        .activation = .reloid,
-    }, .{
-        .layer = .{ .LayerG = 25 },
-        .activation = .reloid,
-    }, .{
-        .layer = .{ .LayerG = 25 },
-        .activation = .reloid,
-    }, .{
-        .layer = .{ .LayerG = 10 },
-        .activation = default,
-    } };
-    var previousLayerSize = dataset.inputSize;
-    var storage: [layers.len]layerStorage = undefined;
-    var validationStorage: [layers.len]layerStorage = undefined;
+    const default = uLayer.Relu;
+    const layers = [_]uLayer{
+        .{ .layer = .{ .LayerG = 25 } },
+        .{ .layer = default },
+        .{ .layer = .{ .LayerG = 25 } },
+        .{ .layer = default },
+        .{ .layer = .{ .LayerG = 25 } },
+        .{ .layer = default },
+        .{ .layer = .{ .LayerG = 25 } },
+        .{ .layer = default },
+        .{ .layer = .{ .LayerG = 10 } },
+        .{ .layer = default },
+    };
+    comptime var previousLayerSize = dataset.inputSize;
+    var storage: [layers.len]Layer = undefined;
+    var validationStorage: [layers.len]Layer = undefined;
     //var reader = std.io.limitedReader(file.reader(), (try file.stat()).size);
-    std.debug.assert(dataset.outputSize == switch (layers[storage.len - 1].layer) {
-        .Layer, .LayerB, .LayerG => |l| l,
-    });
+
     var reader = std.io.bufferedReader(file.reader());
     // Prep NN
     inline for (layers, 0..) |lay, i| {
-        const size = switch (lay.layer) {
-            .Layer, .LayerB, .LayerG => |size| size,
-        };
-        storage[i] = try layerFromDescriptor(
+        storage[i] = try layerInit(
             allocator,
             lay,
-            batchSize,
-            previousLayerSize,
+            .{
+                .batchSize = batchSize,
+                .inputSize = previousLayerSize,
+            },
         );
-        validationStorage[i] = try layerFromDescriptor(
+        validationStorage[i] = try layerInit(
             allocator,
             lay,
-            dataset.validationSize,
-            previousLayerSize,
+            .{
+                .batchSize = dataset.validationSize,
+                .inputSize = previousLayerSize,
+            },
         );
         switch (validationStorage[i].layer) {
             inline else => |*l| l.deinitBackwards(allocator),
@@ -121,7 +108,10 @@ pub fn main() !void {
                 },
             }
         }
-        previousLayerSize = size;
+        switch (lay.layer) {
+            .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
+            else => {},
+        }
     }
 
     file.close();
@@ -129,8 +119,6 @@ pub fn main() !void {
     const k = try Neuralnet(
         &validationStorage,
         &storage,
-        batchSize,
-        epoch,
         dataset,
         allocator,
     );
@@ -154,115 +142,68 @@ pub fn main() !void {
     }
 }
 
-const uActivation = enum {
-    none,
-    relu,
-    pyramid,
-    gaussian,
-    reloid,
-};
-
-const Activation = union(uActivation) {
-    none: void,
-    relu: relu,
-    pyramid: pyramid,
-    gaussian: gaussian,
-    reloid: reloid,
-};
-
 const uLayer = union(enum) {
     LayerG: usize,
     LayerB: usize,
     Layer: usize,
+    Relu: void,
+    Pyramid: void,
+    Gaussian: void,
+    Reloid: void,
 };
 const Layer = union(enum) {
     LayerG: layerG,
     LayerB: layerB,
     Layer: layer,
+    Relu: relu,
+    Pyramid: pyramid,
+    Gaussian: gaussian,
+    Reloid: reloid,
 };
 
-const layerDescriptor = struct {
-    layer: uLayer,
-    activation: uActivation,
-};
-
-const layerStorage = struct {
-    layer: Layer,
-    activation: Activation,
-};
-
-fn layerFromDescriptor(alloc: std.mem.Allocator, comptime desc: layerDescriptor, batchSize: usize, inputSize: usize) !layerStorage {
+fn layerInit(alloc: std.mem.Allocator, comptime desc: uLayer, lcommon: anytype) !Layer {
     //comptime var lsize = 0;
 
-    const lt = switch (desc.layer) {
+    const lt = switch (desc) {
         .Layer => layer,
         .LayerB => layerB,
         .LayerG => layerG,
+        .Reloid => reloid,
+        .Relu => relu,
+        .Gaussian => gaussian,
+        .Pyramid => pyramid,
     };
-    const lsize = switch (desc.layer) {
+    const lconf = switch (desc) {
         inline else => |s| s,
     };
     const ltt = switch (lt) {
         inline else => |*l| try l.init(
             alloc,
-            batchSize,
-            inputSize,
-            lsize,
+            lcommon,
+            lconf,
         ),
     };
-    const layerType = switch (desc.layer) {
-        .Layer,
-        => Layer{ .Layer = ltt },
+
+    const layerType = switch (desc) {
+        .Layer => Layer{ .Layer = ltt },
         .LayerB => Layer{ .LayerB = ltt },
         .LayerG => Layer{ .LayerG = ltt },
-    };
-    const activation = switch (desc.activation) {
-        .relu => Activation{
-            .relu = try relu.init(
-                alloc,
-                batchSize,
-                lsize,
-            ),
-        },
-        .reloid => Activation{
-            .reloid = try reloid.init(
-                alloc,
-                batchSize,
-                lsize,
-            ),
-        },
-        .pyramid => Activation{
-            .pyramid = try pyramid.init(
-                alloc,
-                batchSize,
-                lsize,
-            ),
-        },
-        .gaussian => Activation{
-            .gaussian = try gaussian.init(
-                alloc,
-                batchSize,
-                lsize,
-            ),
-        },
-        .none => .none,
+        .Relu => Layer{ .Relu = ltt },
+        .Reloid => Layer{ .Reloid = ltt },
+        .Pyramid => Layer{ .Pyramid = ltt },
+        .Gaussian => Layer{ .Gaussian = ltt },
     };
 
-    return .{
-        .layer = layerType,
-        .activation = activation,
-    };
+    return layerType;
 }
 
 pub fn Neuralnet(
     //comptime layers: []const layerDescriptor,
-    validationStorage: []layerStorage,
-    storage: []layerStorage,
-    comptime batchSize: u32,
-    comptime epochs: u32,
+    validationStorage: []Layer,
+    storage: []Layer,
     dataset: anytype,
     allocator: std.mem.Allocator,
-) ![]layerStorage {
+) ![]Layer {
 
     //const testImageCount = 10000;
 
@@ -272,17 +213,6 @@ pub fn Neuralnet(
     std.debug.print("Training... \n", .{});
     // Do training
     for (0..epochs) |_| {
-        //if (e % 50 == 0) {
-        //    std.debug.print("Reinit \n", .{});
-        //    for (storage, 0..) |_, i| {
-        //        switch (storage[i].layer) {
-        //            .LayerG => |*l| {
-        //                l.reinit();
-        //            },
-        //            else => {},
-        //        }
-        //    }
-        //}
         // Do training
 
         for (0..dataset.trainSize / batchSize) |i| {
@@ -298,14 +228,7 @@ pub fn Neuralnet(
                 switch (current.layer) {
                     inline else => |*currentLayer| {
                         currentLayer.forward(previousLayerOut);
-                        previousLayerOut = currentLayer.outputs;
-                    },
-                }
-                switch (current.activation) {
-                    .none => {},
-                    inline else => |*currentActivation| {
-                        currentActivation.forward(previousLayerOut);
-                        previousLayerOut = currentActivation.fwd_out;
+                        previousLayerOut = currentLayer.fwd_out;
                     },
                 }
             }
@@ -325,26 +248,22 @@ pub fn Neuralnet(
             var previousGradient = loss.input_grads;
             for (0..storage.len) |ni| {
                 const index = storage.len - ni - 1;
-                switch (storage[index].activation) {
-                    .none => {},
+                switch (storage[index].layer) {
                     inline else => |*currentActivation| {
                         currentActivation.backwards(previousGradient);
                         previousGradient = currentActivation.bkw_out;
                     },
                 }
-                switch (storage[index].layer) {
-                    inline else => |*currentLayer| {
-                        currentLayer.backwards(previousGradient);
-                        previousGradient = currentLayer.input_grads;
-                    },
-                }
             }
+            //use last gradient as a scalar for an optimizer?
             // Update network
 
             for (storage) |*current| {
                 switch (current.layer) {
                     inline else => |*currentLayer| {
-                        currentLayer.applyGradients();
+                        if (@hasField(@TypeOf(currentLayer.*), "applyGradients()")) {
+                            currentLayer.applyGradients();
+                        }
                     },
                 }
             }
@@ -357,16 +276,15 @@ pub fn Neuralnet(
         for (validationStorage, 0..) |*current, cur| {
             switch (current.layer) {
                 .Layer => |*currentLayer| {
-                    currentLayer.setWeights(storage[cur].layer.Layer.weights);
+                    currentLayer.setParams(storage[cur].layer);
                 },
                 .LayerB => |*currentLayer| {
-                    currentLayer.setWeights(storage[cur].layer.LayerB.weights);
-                    currentLayer.setBiases(storage[cur].layer.LayerB.biases);
+                    currentLayer.setParams(storage[cur].layer);
                 },
                 .LayerG => |*currentLayer| {
-                    currentLayer.setWeights(storage[cur].layer.LayerG.weights);
-                    currentLayer.setBiases(storage[cur].layer.LayerG.biases);
+                    currentLayer.setParams(storage[cur].layer);
                 },
+                else => {},
             }
         }
         var previousLayerOut = inputs;

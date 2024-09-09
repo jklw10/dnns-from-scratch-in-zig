@@ -10,9 +10,14 @@ const Self = @This();
 
 pub fn init(
     alloc: std.mem.Allocator,
-    batchSize: usize,
-    size: usize,
+    lcommon: struct {
+        batchSize: usize,
+        inputSize: usize,
+    },
+    _: anytype,
 ) !Self {
+    const size = lcommon.inputSize;
+    const batchSize = lcommon.batchSize;
     return Self{
         .last_inputs = try alloc.alloc(f64, size * batchSize),
         .fwd_out = try alloc.alloc(f64, size * batchSize),
@@ -21,6 +26,10 @@ pub fn init(
         .size = size,
     };
 }
+pub fn deinitBackwards(self: *Self, alloc: std.mem.Allocator) void {
+    alloc.free(self.bkw_out);
+}
+
 const limit = std.math.floatMax(f64);
 pub fn forward(self: *Self, inputs: []f64) void {
     std.debug.assert(inputs.len == self.size * self.batchSize);

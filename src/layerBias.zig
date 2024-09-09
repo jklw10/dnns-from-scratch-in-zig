@@ -3,22 +3,20 @@ const std = @import("std");
 weights: []f64,
 biases: []f64,
 last_inputs: []const f64,
-outputs: []f64,
+fwd_out: []f64,
 weight_grads: []f64,
 bias_grads: []f64,
-input_grads: []f64,
+bkw_out: []f64,
 batchSize: usize,
 inputSize: usize,
 outputSize: usize,
 const Self = @This();
 
-pub fn setWeights(self: *Self, weights: []f64) void {
-    self.weights = weights;
+pub fn copyParams(self: *Self, other: Self) void {
+    self.weights = other.weights;
+    self.weights = other.biases;
 }
 
-pub fn setBiases(self: *Self, biases: []f64) void {
-    self.biases = biases;
-}
 pub fn readParams(self: *Self, params: anytype) !void {
     _ = try params.read(std.mem.sliceAsBytes(self.weights));
     _ = try params.read(std.mem.sliceAsBytes(self.biases));
@@ -29,10 +27,14 @@ pub fn writeParams(self: *Self, params: anytype) !void {
 }
 pub fn init(
     alloc: std.mem.Allocator,
-    batchSize: usize,
-    inputSize: usize,
+    lcommon: struct {
+        batchSize: usize,
+        inputSize: usize,
+    },
     outputSize: usize,
 ) !Self {
+    const inputSize = lcommon.inputSize;
+    const batchSize = lcommon.batchSize;
     std.debug.assert(inputSize != 0);
     std.debug.assert(outputSize != 0);
     std.debug.assert(batchSize != 0);
@@ -54,10 +56,10 @@ pub fn init(
         .weights = weights,
         .biases = biases,
         .last_inputs = undefined,
-        .outputs = try alloc.alloc(f64, outputSize * batchSize),
+        .fwd_out = try alloc.alloc(f64, outputSize * batchSize),
         .weight_grads = try alloc.alloc(f64, inputSize * outputSize),
         .bias_grads = try alloc.alloc(f64, outputSize),
-        .input_grads = try alloc.alloc(f64, inputSize * batchSize),
+        .bkw_out = try alloc.alloc(f64, inputSize * batchSize),
         .batchSize = batchSize,
         .outputSize = outputSize,
         .inputSize = inputSize,
@@ -70,7 +72,7 @@ pub fn deinitBackwards(self: *Self, alloc: std.mem.Allocator) void {
     //alloc.free(self.outputs);
     alloc.free(self.weight_grads);
     alloc.free(self.bias_grads);
-    alloc.free(self.input_grads);
+    alloc.free(self.bkw_out);
 }
 
 pub fn forward(
@@ -91,7 +93,7 @@ pub fn forward(
             while (i < self.inputSize) : (i += 1) {
                 sum += inputs[b * self.inputSize + i] * self.weights[self.outputSize * i + o];
             }
-            self.outputs[b * self.outputSize + o] = sum + self.biases[o];
+            self.fwd_out[b * self.outputSize + o] = sum + self.biases[o];
         }
     }
     self.last_inputs = inputs;
@@ -103,7 +105,7 @@ pub fn backwards(
 ) void {
     std.debug.assert(self.last_inputs.len == self.inputSize * self.batchSize);
 
-    @memset(self.input_grads, 0);
+    @memset(self.bkw_out, 0);
     @memset(self.weight_grads, 0);
     @memset(self.bias_grads, 0);
 
@@ -116,7 +118,7 @@ pub fn backwards(
             while (i < self.inputSize) : (i += 1) {
                 self.weight_grads[i * self.outputSize + o] +=
                     (grads[b * self.outputSize + o] * self.last_inputs[b * self.inputSize + i]) / @as(f64, @floatFromInt(self.batchSize));
-                self.input_grads[b * self.inputSize + i] +=
+                self.bkw_out[b * self.inputSize + i] +=
                     grads[b * self.outputSize + o] * self.weights[i * self.outputSize + o];
             }
         }

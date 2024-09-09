@@ -6,12 +6,12 @@ dropOut: []bool,
 weights: []f64,
 biases: []f64,
 last_inputs: []const f64,
-outputs: []f64,
+fwd_out: []f64,
 weight_grads: []f64,
 averageWeights: []f64,
 averageBiases: []f64,
 bias_grads: []f64,
-input_grads: []f64,
+bkw_out: []f64,
 batchSize: usize,
 inputSize: usize,
 outputSize: usize,
@@ -28,13 +28,11 @@ const dropOutRate = 0.00;
 const scale = 1.0 / (1.0 - dropOutRate);
 const usedrop = false;
 
-pub fn setWeights(self: *Self, weights: []f64) void {
-    self.weights = weights;
+pub fn copyParams(self: *Self, other: Self) void {
+    self.weights = other.weights;
+    self.weights = other.biases;
 }
 
-pub fn setBiases(self: *Self, biases: []f64) void {
-    self.biases = biases;
-}
 pub fn readParams(self: *Self, params: anytype) !void {
     _ = try params.read(std.mem.sliceAsBytes(self.weights));
     _ = try params.read(std.mem.sliceAsBytes(self.biases));
@@ -77,10 +75,14 @@ pub fn reinit(self: *Self, percent: f64) void {
 }
 pub fn init(
     alloc: std.mem.Allocator,
-    batchSize: usize,
-    inputSize: usize,
+    lcommon: struct {
+        batchSize: usize,
+        inputSize: usize,
+    },
     outputSize: usize,
 ) !Self {
+    const inputSize = lcommon.inputSize;
+    const batchSize = lcommon.batchSize;
     std.debug.assert(inputSize != 0);
     std.debug.assert(outputSize != 0);
     std.debug.assert(batchSize != 0);
@@ -106,12 +108,12 @@ pub fn init(
         .weights = weights,
         .biases = biases,
         .last_inputs = undefined,
-        .outputs = try alloc.alloc(f64, outputSize * batchSize),
+        .fwd_out = try alloc.alloc(f64, outputSize * batchSize),
         .weight_grads = try alloc.alloc(f64, inputSize * outputSize),
         .averageWeights = aw,
         .averageBiases = ab,
         .bias_grads = try alloc.alloc(f64, outputSize),
-        .input_grads = try alloc.alloc(f64, inputSize * batchSize),
+        .bkw_out = try alloc.alloc(f64, inputSize * batchSize),
         .batchSize = batchSize,
         .outputSize = outputSize,
         .inputSize = inputSize,
@@ -128,7 +130,7 @@ pub fn deinitBackwards(self: *Self, alloc: std.mem.Allocator) void {
     alloc.free(self.averageWeights);
     alloc.free(self.weight_grads);
     alloc.free(self.bias_grads);
-    alloc.free(self.input_grads);
+    alloc.free(self.bkw_out);
 }
 
 pub fn forward(
@@ -163,7 +165,7 @@ pub fn forward(
                 const d = 1.0; // if (usedrop) 1.0 else @as(f64, @floatFromInt(@intFromBool(self.dropOut[self.outputSize * i + o]))) * self.nodrop;
                 sum += d * inputs[b * self.inputSize + i] * self.weights[i + self.inputSize * o];
             }
-            self.outputs[b * self.outputSize + o] = sum + self.biases[o];
+            self.fwd_out[b * self.outputSize + o] = sum + self.biases[o];
         }
     }
     self.last_inputs = inputs;
@@ -175,7 +177,7 @@ pub fn backwards(
 ) void {
     std.debug.assert(self.last_inputs.len == self.inputSize * self.batchSize);
 
-    @memset(self.input_grads, 0);
+    @memset(self.bkw_out, 0);
     @memset(self.weight_grads, 0);
     @memset(self.bias_grads, 0);
 
@@ -199,7 +201,7 @@ pub fn backwards(
                 //_ = wadj;
                 //todo scale by variance of weight grad
                 self.weight_grads[i + self.inputSize * o] += (w / @as(f64, @floatFromInt(self.batchSize))); // * wadj; //  * drop;
-                self.input_grads[b * self.inputSize + i] +=
+                self.bkw_out[b * self.inputSize + i] +=
                     grads[b * self.outputSize + o] * self.weights[i + self.inputSize * o]; //  * drop;
                 //}
             }
@@ -307,5 +309,6 @@ pub fn applyGradients(self: *Self) void {
     //    self.rounds = 0.0;
     //    self.reinit(0.00);
     //}
+    //self.biases = normalize(self.biases, self.normMulti, self.normBias, 0.01);
     //self.biases = normalize(self.biases, self.normMulti, self.normBias, 0.01);
 }

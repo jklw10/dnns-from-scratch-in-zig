@@ -2,17 +2,17 @@ const std = @import("std");
 
 weights: []f64,
 last_inputs: []const f64,
-outputs: []f64,
+fwd_out: []f64,
 weight_grads: []f64, // = [1]f64{0} ** (inputSize * outputSize);
-input_grads: []f64, //= [1]f64{0} ** (batchSize * inputSize);
+bkw_out: []f64, //= [1]f64{0} ** (batchSize * inputSize);
 batchSize: usize,
 inputSize: usize,
 outputSize: usize,
 
 const Self = @This();
 //var outputs: [batchSize * outputSize]f64 = [1]f64{0} ** (batchSize * outputSize);
-pub fn setWeights(self: *Self, weights: []f64) void {
-    self.weights = weights;
+pub fn setParams(self: *Self, other: Self) void {
+    self.weights = other.weights;
 }
 
 pub fn readParams(self: *Self, params: anytype) !void {
@@ -23,10 +23,14 @@ pub fn writeParams(self: *Self, params: anytype) !void {
 }
 pub fn init(
     alloc: std.mem.Allocator,
-    batchSize: usize,
-    inputSize: usize,
+    lcommon: struct {
+        batchSize: usize,
+        inputSize: usize,
+    },
     outputSize: usize,
 ) !Self {
+    const inputSize = lcommon.inputSize;
+    const batchSize = lcommon.batchSize;
     std.debug.assert(inputSize != 0);
     std.debug.assert(outputSize != 0);
     std.debug.assert(batchSize != 0);
@@ -39,9 +43,9 @@ pub fn init(
     return Self{
         .weights = weights,
         .last_inputs = undefined,
-        .outputs = try alloc.alloc(f64, outputSize * batchSize),
+        .fwd_out = try alloc.alloc(f64, outputSize * batchSize),
         .weight_grads = try alloc.alloc(f64, inputSize * outputSize),
-        .input_grads = try alloc.alloc(f64, inputSize * batchSize),
+        .bkw_out = try alloc.alloc(f64, inputSize * batchSize),
         .batchSize = batchSize,
         .outputSize = outputSize,
         .inputSize = inputSize,
@@ -52,7 +56,7 @@ pub fn deinitBackwards(self: *Self, alloc: std.mem.Allocator) void {
     //alloc.free(self.last_inputs);
     //alloc.free(self.outputs);
     alloc.free(self.weight_grads);
-    alloc.free(self.input_grads);
+    alloc.free(self.bkw_out);
 }
 
 pub fn forward(
@@ -69,7 +73,7 @@ pub fn forward(
             while (i < self.inputSize) : (i += 1) {
                 sum += inputs[b * self.inputSize + i] * self.weights[self.outputSize * i + o];
             }
-            self.outputs[b * self.outputSize + o] = sum;
+            self.fwd_out[b * self.outputSize + o] = sum;
         }
     }
     self.last_inputs = inputs;
@@ -84,7 +88,7 @@ pub fn backwards(
     //self.input_grads = [1]f64{0} ** (inputSize * batchSize);
     //self.weight_grads = [1]f64{0} ** (inputSize * outputSize);
 
-    @memset(self.input_grads, 0);
+    @memset(self.bkw_out, 0);
     @memset(self.weight_grads, 0);
 
     var b: usize = 0;
@@ -95,7 +99,7 @@ pub fn backwards(
             while (o < self.outputSize) : (o += 1) {
                 self.weight_grads[i * self.outputSize + o] +=
                     (grads[b * self.outputSize + o] * self.last_inputs[b * self.inputSize + i]) / @as(f64, @floatFromInt(self.batchSize));
-                self.input_grads[b * self.inputSize + i] +=
+                self.bkw_out[b * self.inputSize + i] +=
                     grads[b * self.outputSize + o] * self.weights[i * self.outputSize + o];
             }
         }

@@ -18,6 +18,7 @@ const typesignature = "G25RRRR_G10R.f64";
 
 const graphfuncs = false;
 const reinit = false;
+const l2_lambda = 0.000075;
 
 const epochs = 100;
 const batchSize = 100;
@@ -57,16 +58,16 @@ pub fn main() !void {
 
     const default = uLayer.Relu;
     const layers = [_]uLayer{
-        .{ .layer = .{ .LayerG = 25 } },
-        .{ .layer = default },
-        .{ .layer = .{ .LayerG = 25 } },
-        .{ .layer = default },
-        .{ .layer = .{ .LayerG = 25 } },
-        .{ .layer = default },
-        .{ .layer = .{ .LayerG = 25 } },
-        .{ .layer = default },
-        .{ .layer = .{ .LayerG = 10 } },
-        .{ .layer = default },
+        .{ .LayerG = 25 },
+        default,
+        .{ .LayerG = 25 },
+        default,
+        .{ .LayerG = 25 },
+        default,
+        .{ .LayerG = 25 },
+        default,
+        .{ .LayerG = 10 },
+        default,
     };
     comptime var previousLayerSize = dataset.inputSize;
     var storage: [layers.len]Layer = undefined;
@@ -92,11 +93,11 @@ pub fn main() !void {
                 .inputSize = previousLayerSize,
             },
         );
-        switch (validationStorage[i].layer) {
+        switch (validationStorage[i]) {
             inline else => |*l| l.deinitBackwards(allocator),
         }
         if (readfile) {
-            switch (storage[i].layer) {
+            switch (storage[i]) {
                 .LayerG => |*l| {
                     try l.readParams(&reader);
                     if (reinit) {
@@ -108,7 +109,7 @@ pub fn main() !void {
                 },
             }
         }
-        switch (lay.layer) {
+        switch (lay) {
             .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
             else => {},
         }
@@ -133,9 +134,11 @@ pub fn main() !void {
         );
         defer filew.close();
         for (0..k.len) |l| {
-            switch (k[l].layer) {
+            switch (k[l]) {
                 inline else => |*la| {
-                    try la.writeParams(filew);
+                    if (@hasField(@TypeOf(k[l]), "writeParams()")) {
+                        try la.writeParams(filew);
+                    }
                 },
             }
         }
@@ -207,6 +210,7 @@ pub fn Neuralnet(
 
     //const testImageCount = 10000;
 
+    var weights = std.ArrayList([]f64).init(allocator);
     var loss = try nll.init(dataset.outputSize, batchSize, allocator);
 
     const t = std.time.milliTimestamp();
@@ -225,8 +229,11 @@ pub fn Neuralnet(
 
             var previousLayerOut = inputs;
             for (storage) |*current| {
-                switch (current.layer) {
+                switch (current.*) {
                     inline else => |*currentLayer| {
+                        if (@hasField(@TypeOf(current.*), "weights")) {
+                            try weights.append(currentLayer.weights);
+                        }
                         currentLayer.forward(previousLayerOut);
                         previousLayerOut = currentLayer.fwd_out;
                     },
@@ -238,17 +245,22 @@ pub fn Neuralnet(
             //    });
             //}
 
-            loss.nll(previousLayerOut, targets) catch |err| {
+            loss.nll(
+                previousLayerOut,
+                targets,
+                weights.items,
+                l2_lambda,
+            ) catch |err| {
                 //std.debug.print("batch number: {}, time delta: {}ms\n", .{ i * batchSize, std.time.milliTimestamp() - t });
                 std.debug.print("loss err: {any}\n", .{
-                    averageArray(loss.loss),
+                    stats(loss.loss).avg,
                 });
                 return err;
             };
             var previousGradient = loss.input_grads;
             for (0..storage.len) |ni| {
                 const index = storage.len - ni - 1;
-                switch (storage[index].layer) {
+                switch (storage[index]) {
                     inline else => |*currentActivation| {
                         currentActivation.backwards(previousGradient);
                         previousGradient = currentActivation.bkw_out;
@@ -257,12 +269,12 @@ pub fn Neuralnet(
             }
             //use last gradient as a scalar for an optimizer?
             // Update network
-
+            //stats(previousGradient).avgabs;
             for (storage) |*current| {
-                switch (current.layer) {
-                    inline else => |*currentLayer| {
-                        if (@hasField(@TypeOf(currentLayer.*), "applyGradients()")) {
-                            currentLayer.applyGradients();
+                switch (current) {
+                    else => |*currentLayer| {
+                        if (@hasField(@TypeOf(current.*), "applyGradients()")) {
+                            currentLayer.applyGradients(l2_lambda);
                         }
                     },
                 }
@@ -274,32 +286,25 @@ pub fn Neuralnet(
         const inputs = dataset.test_images;
 
         for (validationStorage, 0..) |*current, cur| {
-            switch (current.layer) {
+            switch (current.*) {
                 .Layer => |*currentLayer| {
-                    currentLayer.setParams(storage[cur].layer);
+                    currentLayer.copyParams(storage[cur].Layer);
                 },
                 .LayerB => |*currentLayer| {
-                    currentLayer.setParams(storage[cur].layer);
+                    currentLayer.copyParams(storage[cur].LayerB);
                 },
                 .LayerG => |*currentLayer| {
-                    currentLayer.setParams(storage[cur].layer);
+                    currentLayer.copyParams(storage[cur].LayerG);
                 },
                 else => {},
             }
         }
         var previousLayerOut = inputs;
         for (validationStorage) |*current| {
-            switch (current.layer) {
+            switch (current.*) {
                 inline else => |*currentLayer| {
                     currentLayer.forward(previousLayerOut);
-                    previousLayerOut = currentLayer.outputs;
-                },
-            }
-            switch (current.activation) {
-                .none => {},
-                inline else => |*currentActivation| {
-                    currentActivation.forward(previousLayerOut);
-                    previousLayerOut = currentActivation.fwd_out;
+                    previousLayerOut = currentLayer.fwd_out;
                 },
             }
         }
@@ -328,12 +333,27 @@ pub fn Neuralnet(
     std.debug.print(" time total: {}ms\n", .{ct - t});
     return storage;
 }
-fn averageArray(arr: []f64) f64 {
-    var sum: f64 = 0;
+const Stat = struct {
+    range: f64,
+    avg: f64,
+    avgabs: f64,
+};
+fn stats(arr: []f64) Stat {
+    var min: f64 = std.math.floatMax(f64);
+    var max: f64 = -min;
+    var sum: f64 = 0.000000001;
+    var absum: f64 = 0.000000001;
     for (arr) |elem| {
+        if (min > elem) min = elem;
+        if (max < elem) max = elem;
         sum += elem;
+        absum += @abs(elem);
     }
-    return sum / @as(f64, @floatFromInt(arr.len));
+    return Stat{
+        .range = @max(0.000000001, @abs(max - min)),
+        .avg = sum / @as(f64, @floatFromInt(arr.len)),
+        .avgabs = absum / @as(f64, @floatFromInt(arr.len)),
+    };
 }
 
 test "Forward once" {

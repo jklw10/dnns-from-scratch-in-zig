@@ -11,7 +11,7 @@ outputSize: usize,
 
 const Self = @This();
 //var outputs: [batchSize * outputSize]f64 = [1]f64{0} ** (batchSize * outputSize);
-pub fn setParams(self: *Self, other: Self) void {
+pub fn copyParams(self: *Self, other: Self) void {
     self.weights = other.weights;
 }
 
@@ -106,7 +106,8 @@ pub fn backwards(
     }
 }
 
-pub fn applyGradients(self: *Self) void {
+pub fn applyGradients(self: *Self, funval: f64) void {
+    _ = funval;
     var i: usize = 0;
     while (i < self.inputSize * self.outputSize) : (i += 1) {
         self.weights[i] -= 0.01 * self.weight_grads[i];

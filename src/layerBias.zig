@@ -125,7 +125,8 @@ pub fn backwards(
     }
 }
 
-pub fn applyGradients(self: *Self) void {
+pub fn applyGradients(self: *Self, funval: f64) void {
+    _ = funval;
     var i: usize = 0;
     while (i < self.inputSize * self.outputSize) : (i += 1) {
         self.weights[i] -= 0.01 * self.weight_grads[i];

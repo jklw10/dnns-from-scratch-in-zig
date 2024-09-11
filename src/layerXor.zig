@@ -94,7 +94,8 @@ pub fn backwards(self: *Self, wanted_outputs: []u64) void {
     }
 }
 
-pub fn applyGradients(self: *Self) void {
+pub fn applyGradients(self: *Self, funval: f64) void {
+    _ = funval;
     // You could either apply the gradients here or directly in the backwards pass.
     var i: usize = 0;
     while (i < self.inputSize * self.outputSize) : (i += 1) {

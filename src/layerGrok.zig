@@ -29,8 +29,8 @@ const scale = 1.0 / (1.0 - dropOutRate);
 const usedrop = false;
 
 pub fn copyParams(self: *Self, other: Self) void {
-    self.weights = other.weights;
-    self.weights = other.biases;
+    @memcpy(self.weights, other.weights);
+    @memcpy(self.biases, other.biases);
 }
 
 pub fn readParams(self: *Self, params: anytype) !void {
@@ -83,6 +83,7 @@ pub fn init(
 ) !Self {
     const inputSize = lcommon.inputSize;
     const batchSize = lcommon.batchSize;
+    std.debug.print("i:{any},o:{any},b:{any}\n", .{ inputSize, outputSize, batchSize });
     std.debug.assert(inputSize != 0);
     std.debug.assert(outputSize != 0);
     std.debug.assert(batchSize != 0);
@@ -163,7 +164,9 @@ pub fn forward(
             var i: usize = 0;
             while (i < self.inputSize) : (i += 1) {
                 const d = 1.0; // if (usedrop) 1.0 else @as(f64, @floatFromInt(@intFromBool(self.dropOut[self.outputSize * i + o]))) * self.nodrop;
-                sum += d * inputs[b * self.inputSize + i] * self.weights[i + self.inputSize * o];
+                const w = self.weights[i + self.inputSize * o];
+                const in = inputs[b * self.inputSize + i];
+                sum += d * in * w;
             }
             self.fwd_out[b * self.outputSize + o] = sum + self.biases[o];
         }
@@ -247,10 +250,10 @@ const smoothing = lr;
 const normlr = lr / 10.0;
 
 //best on its own: 0.0075;
-const lambda = 0.0075;
+//const lambda = 0.0075;
 const elasticAlpha = 0.0;
 
-pub fn applyGradients(self: *Self) void {
+pub fn applyGradients(self: *Self, lambda: f64) void {
     const awstat = stats(self.averageWeights);
     const wstat = stats(self.weights);
     const wgstat = stats(self.weight_grads);
@@ -273,24 +276,25 @@ pub fn applyGradients(self: *Self) void {
     //    self.rounds = 0.0;
 
     for (0..self.inputSize * self.outputSize) |i| {
-        const l2 = lambda * self.weights[i] * @abs(self.weights[i]);
+        const l2 = lambda * self.weights[i]; // * @abs(self.weights[i]);
         const l1 = lambda * std.math.sign(self.weights[i]);
 
         const EN = std.math.lerp(l2, l1, elasticAlpha);
         _ = EN;
-        const g = self.weight_grads[i]; // + EN;
+        const g = self.weight_grads[i] + l2; // + l2; // + EN;
         //todo, try normalize gradients.
         //weight average, use with lambda?
         //nudge towards it with \/ ?
 
         const awdiff = self.averageWeights[i] - self.weights[i];
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
-        const gdiff = 1.0 / (@abs(@sin(self.averageWeights[i])) + @abs(g - awdiff));
-        //_ = gdiff;
-        self.weights[i] -= lr * g * gdiff; // * p; //* gadj; //* p;
+        const gdiff = 1.0 / (@sqrt(@abs((self.averageWeights[i]))) + @abs(g - awdiff));
+        _ = gdiff;
+        self.weights[i] -= lr * g; // * gdiff; // * p; //* gadj; //* p;
 
-        const aw = self.averageWeights[i];
-        self.averageWeights[i] = aw + (smoothing * (self.weights[i] - aw));
+        //const aw = self.averageWeights[i];
+        const step = self.weights[i] - self.averageWeights[i];
+        self.averageWeights[i] += (smoothing * step * @abs(step));
     }
 
     //self.weights = normalize(self.weights, self.normMulti, self.normBias, 0.001);

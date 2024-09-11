@@ -21,7 +21,17 @@ pub fn init(
         .inputSize = inputSize,
     };
 }
-pub fn nll(self: *Self, inputs: []f64, targets: []u8) !void {
+
+pub fn nll(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, lambda: f64) !void {
+    var l2_sum: f64 = 0.0;
+    for (weights) |row| {
+        for (row) |weight| {
+            l2_sum += weight * weight;
+        }
+    }
+    const l2_term = 0;
+    _ = (lambda / 2.0) * l2_sum;
+
     //todo make assert right.
     if (inputs.len != 10 * 100) std.debug.print("should be equal {any} in, expect {any}", .{ inputs.len, 10 * 100 });
     for (0..self.batchSize) |b| {
@@ -56,7 +66,7 @@ pub fn nll(self: *Self, inputs: []f64, targets: []u8) !void {
             //    self.loss[b] = -1 * @log(std.math.exp(inputs[b * self.inputSize] + targets[b]) / sum);
         }
         for (0..self.inputSize) |i| {
-            self.input_grads[b * self.inputSize + i] = std.math.exp(inputs[b * self.inputSize + i] - maxInput) / sum;
+            self.input_grads[b * self.inputSize + i] = std.math.exp(inputs[b * self.inputSize + i] - maxInput) / sum + l2_term;
             if (i == targets[b]) {
                 self.input_grads[b * self.inputSize + i] -= 1;
             }

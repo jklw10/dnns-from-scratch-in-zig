@@ -14,7 +14,7 @@ const Self = @This();
 
 pub fn copyParams(self: *Self, other: Self) void {
     self.weights = other.weights;
-    self.weights = other.biases;
+    self.biases = other.biases;
 }
 
 pub fn readParams(self: *Self, params: anytype) !void {

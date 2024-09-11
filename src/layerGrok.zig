@@ -29,8 +29,8 @@ const scale = 1.0 / (1.0 - dropOutRate);
 const usedrop = false;
 
 pub fn copyParams(self: *Self, other: Self) void {
-    @memcpy(self.weights, other.weights);
-    @memcpy(self.biases, other.biases);
+    self.weights = other.weights;
+    self.biases = other.biases;
 }
 
 pub fn readParams(self: *Self, params: anytype) !void {

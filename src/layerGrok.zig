@@ -289,8 +289,8 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         const awdiff = self.averageWeights[i] - self.weights[i];
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / (@sqrt(@abs((self.averageWeights[i]))) + @abs(g - awdiff));
-        _ = gdiff;
-        self.weights[i] -= lr * g; // * gdiff; // * p; //* gadj; //* p;
+        //_ = gdiff;
+        self.weights[i] -= lr * g * gdiff; // * p; //* gadj; //* p;
 
         //const aw = self.averageWeights[i];
         const step = self.weights[i] - self.averageWeights[i];

@@ -11,7 +11,7 @@ const gaussian = @import("gaussian.zig");
 const std = @import("std");
 const timer = false;
 
-const readfile = false;
+const readfile = true;
 const writeFile = true;
 
 const typesignature = "G25RRRR_G10R.f64";
@@ -61,11 +61,11 @@ pub fn main() !void {
         .{ .LayerG = 25 },
         default,
         .{ .LayerG = 25 },
-        default,
+        .Reloid,
         .{ .LayerG = 25 },
-        default,
+        .Reloid,
         .{ .LayerG = 25 },
-        default,
+        .Reloid,
         .{ .LayerG = 10 },
         default,
     };
@@ -104,8 +104,11 @@ pub fn main() !void {
                         l.reinit(1.000);
                     }
                 },
-                inline else => |*l| {
-                    try l.readParams(&reader);
+                inline else => {
+                    try callIfCanErr(&storage[i], &reader, "readParams");
+                    //if (@hasDecl(@TypeOf(l.*), "readParams")) {
+                    //    try l.readParams(&reader);
+                    //}
                 },
             }
         }
@@ -134,13 +137,11 @@ pub fn main() !void {
         );
         defer filew.close();
         for (0..k.len) |l| {
-            switch (k[l]) {
-                inline else => |*la| {
-                    if (@hasField(@TypeOf(k[l]), "writeParams()")) {
-                        try la.writeParams(filew);
-                    }
-                },
-            }
+            try callIfCanErr(&k[l], filew, "writeParams");
+            //switch (k[l]) {
+            //    inline else => |*la| {
+            //    },
+            //}
         }
     }
 }
@@ -177,17 +178,25 @@ const Layer = union(enum) {
     fn applyGradients(this: *@This(), args: anytype) void {
         callIfCan(this, args, "applyGradients");
     }
-    fn callIfCan(t: anytype, args: anytype, comptime name: []const u8) void {
-        switch (t.*) {
-            inline else => |*l| {
-                if (@hasDecl(@TypeOf(l.*), name)) {
-                    @field(@TypeOf(l.*), name)(l, args);
-                }
-            },
-        }
-    }
 };
-
+fn callIfCan(t: anytype, args: anytype, comptime name: []const u8) void {
+    switch (t.*) {
+        inline else => |*l| {
+            if (@hasDecl(@TypeOf(l.*), name)) {
+                @field(@TypeOf(l.*), name)(l, args);
+            }
+        },
+    }
+}
+fn callIfCanErr(t: anytype, args: anytype, comptime name: []const u8) !void {
+    switch (t.*) {
+        inline else => |*l| {
+            if (@hasDecl(@TypeOf(l.*), name)) {
+                try @field(@TypeOf(l.*), name)(l, args);
+            }
+        },
+    }
+}
 fn layerInit(alloc: std.mem.Allocator, comptime desc: uLayer, lcommon: anytype) !Layer {
     //comptime var lsize = 0;
 
@@ -263,15 +272,6 @@ pub fn Neuralnet(
                     },
                 }
             }
-            //for (storage) |currentLayer| {
-            //    if (@hasField(@TypeOf(currentLayer), "weights")) {
-            //        try weights.append(currentLayer.weights);
-            //    }
-            //    if (@hasDecl(@TypeOf(currentLayer), "backwards")) {
-            //        currentLayer.forward(previousLayerOut);
-            //        previousLayerOut = currentLayer.fwd_out;
-            //    }
-            //}
             //if (i % (60000 / batchSize) == 1) {
             //    std.debug.print("{any}\n", .{
             //        averageArray(loss.loss),
@@ -300,24 +300,11 @@ pub fn Neuralnet(
                     },
                 }
             }
-            //for (0..storage.len) |ni| {
-            //    //const currentLayer = storage[storage.len - ni - 1];
-            //    if (@hasDecl(@TypeOf(storage[storage.len - ni - 1]), "backwards")) {
-            //        storage[storage.len - ni - 1].backwards(previousGradient);
-            //        previousGradient = storage[storage.len - ni - 1].bkw_out;
-            //    }
-            //}
             //use last gradient as a scalar for an optimizer?
             // Update network
             //stats(previousGradient).avgabs;
             for (storage) |*current| {
                 current.applyGradients(l2_lambda);
-                //switch (current.*) {
-                //    .Layer, .LayerB, .LayerG => |*currentActivation| {
-                //        currentActivation.applyGradients(l2_lambda);
-                //    },
-                //    else => .{},
-                //}
             }
         }
 

@@ -11,14 +11,14 @@ const gaussian = @import("gaussian.zig");
 const std = @import("std");
 const timer = false;
 
-const readfile = true;
+const readfile = false;
 const writeFile = true;
 
 const typesignature = "G25RRRR_G10R.f64";
 
 const graphfuncs = false;
 const reinit = false;
-const l2_lambda = 0.000075;
+const l2_lambda = 0.0075;
 
 const epochs = 100;
 const batchSize = 100;
@@ -58,16 +58,11 @@ pub fn main() !void {
 
     const default = uLayer.Relu;
     const layers = [_]uLayer{
-        .{ .LayerG = 25 },
-        default,
-        .{ .LayerG = 25 },
-        .Reloid,
-        .{ .LayerG = 25 },
-        .Reloid,
-        .{ .LayerG = 25 },
-        .Reloid,
-        .{ .LayerG = 10 },
-        default,
+        .{ .LayerG = 25 }, default,
+        .{ .LayerG = 25 }, .Reloid,
+        .{ .LayerG = 25 }, .Reloid,
+        .{ .LayerG = 25 }, .Reloid,
+        .{ .LayerG = 10 }, default,
     };
     comptime var previousLayerSize = dataset.inputSize;
     var storage: [layers.len]Layer = undefined;

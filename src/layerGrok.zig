@@ -290,7 +290,7 @@ fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
 
 const roundsPerEp = 60000 / 100;
 const lr = 0.001;
-const smoothing = lr;
+const smoothing = 0.1;
 const normlr = lr / 10.0;
 
 //best on its own: 0.0075;
@@ -302,19 +302,13 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
     const wstat = stats(self.weights.data);
     const wgstat = stats(self.weights.grad);
 
-    _ = awstat;
-    _ = wstat;
     self.normMulti -= normlr * (wgstat.range - self.normMulti);
     //self.normBias -= wgstat.avg * normlr;
 
     self.rounds += 1.0;
 
-    if (self.maxAvgGrad < wgstat.avgabs) {
-        self.maxAvgGrad = wgstat.avgabs;
-        //@memcpy(self.weights.EMA, self.weights.data);
-    } else {
-        self.maxAvgGrad -= wgstat.avgabs;
-    }
+    const He = @sqrt(2.0 / @as(f64, @floatFromInt(self.inputSize)));
+    _ = .{ awstat, wstat, He };
     self.weights.grad = normalize(self.weights.grad, 1, 0, 1);
 
     for (0..self.inputSize * self.outputSize) |i| {
@@ -337,7 +331,7 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         //_ = gdiff;
         self.weights.data[i] -= lr * g * gdiff; // * p; //* gadj; //* p;
 
-        self.weights.EMA[i] += (lr * (w - wema)); //
+        self.weights.EMA[i] += (smoothing * (w - wema)); //
         //const aw = self.averageWeights[i];
 
     }
@@ -354,6 +348,13 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
 
         self.biases.data[o] -= lr * g * gdiff;
 
-        self.biases.EMA[o] += lr * (b - bema);
+        self.biases.EMA[o] += smoothing * (b - bema);
+    }
+
+    if (self.maxAvgGrad < wgstat.avgabs) {
+        self.maxAvgGrad = wgstat.avgabs;
+        @memcpy(self.weights.EMA, self.weights.data);
+    } else {
+        self.maxAvgGrad -= wgstat.avgabs;
     }
 }

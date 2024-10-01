@@ -29,8 +29,8 @@ pub fn nll(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, lambda: 
             l2_sum += weight * weight;
         }
     }
-    const l2_term = 0;
-    _ = (lambda / 2.0) * l2_sum;
+    const l2_term = (lambda / 2.0) * l2_sum;
+    //_ = (lambda / 2.0) * l2_sum;
 
     //todo make assert right.
     if (inputs.len != 10 * 100) std.debug.print("should be equal {any} in, expect {any}", .{ inputs.len, 10 * 100 });

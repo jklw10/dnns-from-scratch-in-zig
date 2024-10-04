@@ -91,24 +91,29 @@ pub fn writeParams(self: *Self, params: anytype) !void {
 var prng = std.Random.DefaultPrng.init(123);
 
 pub fn reinit(self: *Self, percent: f64) void {
-    const wa = stats(self.weights);
+    _ = percent;
+    //const wa = stats(self.weights);
     //std.debug.print("stats: {any}", .{wa});
     for (0..self.inputSize * self.outputSize) |w| {
-        const sqrI = @sqrt(2.0 / @as(f64, @floatFromInt(self.inputSize)));
-        const dev = wa.range * sqrI * percent;
-        self.weights[w] = (self.EMAWeight[w]) + prng.random().floatNorm(f64) * dev;
+        if (w > self.inputSize * self.outputSize / 4) {
+            self.weights.data[w] = 0;
+        }
+        //const sqrI = @sqrt(2.0 / @as(f64, @floatFromInt(self.inputSize)));
+        //const dev = wa.range * sqrI * percent;
+        //self.weights[w] = (self.EMAWeight[w]) + prng.random().floatNorm(f64) * dev;
 
         //self.weights[w] = (wa.avg/ 2) + prng.random().floatNorm(f64) * dev;
         //const rand = prng.random().floatNorm(f64);
         //self.weights[w] = std.math.sign(rand) * wa.avgabs + rand * dev; //0 ring.
     }
-
+    @memset(self.weights.data, 0);
+    @memset(self.biases.data, 0);
     //@memcpy(self.averageWeights, self.weights);
 
-    const bs = stats(self.biases);
-    for (0..self.outputSize) |b| {
-        self.biases[b] = self.averageBiases[b] + prng.random().floatNorm(f64) * bs.range;
-    }
+    //const bs = stats(self.biases);
+    //for (0..self.outputSize) |b| {
+    //    self.biases[b] = self.averageBiases[b] + prng.random().floatNorm(f64) * bs.range;
+    //}
 }
 pub fn init(
     alloc: std.mem.Allocator,
@@ -148,14 +153,20 @@ pub fn init(
     for (0..outputSize) |b| {
         returned.biases.data[b] = prng.random().floatNorm(f64) * 0.01; //good value, great value, one of the greatest.
     }
+
     @memcpy(returned.weights.EMA, returned.weights.data);
     @memcpy(returned.biases.EMA, returned.biases.data);
 
+    @memcpy(returned.weights.moment, returned.weights.data);
+    @memcpy(returned.biases.moment, returned.biases.data);
+
+    @memset(returned.weights.data, 0);
+    @memset(returned.biases.data, 0);
+
     //@memset(returned.biases.EMA, 0);
     //@memset(returned.weights.EMA, 0);
-
-    @memset(returned.biases.moment, 0);
-    @memset(returned.weights.moment, 0);
+    //@memset(returned.biases.moment, 0);
+    //@memset(returned.weights.moment, 0);
 
     @memset(returned.biases.moment2, 0);
     @memset(returned.weights.moment2, 0);
@@ -208,7 +219,7 @@ pub fn forward(
             var i: usize = 0;
             while (i < self.inputSize) : (i += 1) {
                 const d = 1.0; // if (usedrop) 1.0 else @as(f64, @floatFromInt(@intFromBool(self.dropOut[self.outputSize * i + o]))) * self.nodrop;
-                const w = (self.weights.data[i + self.inputSize * o] + self.weights.EMA[i + self.inputSize * o]) / 2;
+                const w = funnyMulti(self.weights.data[i + self.inputSize * o], self.weights.EMA[i + self.inputSize * o]);
                 const in = inputs[b * self.inputSize + i];
                 sum += d * in * w;
             }
@@ -216,6 +227,9 @@ pub fn forward(
         }
     }
     self.last_inputs = inputs;
+}
+fn funnyMulti(x: f64, y: f64) f64 {
+    return std.math.sign(x) * @sqrt(@abs(x * y));
 }
 
 pub fn backwards(
@@ -312,12 +326,12 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
     self.weights.grad = normalize(self.weights.grad, 2 - He, 0, 1);
 
     for (0..self.inputSize * self.outputSize) |i| {
-        const w = self.weights.data[i];
+        const wema = self.weights.EMA[i];
+        const w = funnyMulti(self.weights.data[i], wema);
 
         const l2 = lambda * w;
 
         var g = self.weights.grad[i];
-        const wema = self.weights.EMA[i];
 
         //_ = l2;
         g = g + l2; // + l2; // + EN;
@@ -328,15 +342,19 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         const awdiff = wema - w;
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
+
+        //if (self.weights.moment[i] < 1e-3) {
+        //    self.weights.moment[i] = @abs(self.weights.data[i]);
+        //    self.weights.data[i] = 0;
+        //    std.debug.print("reinit", .{});
+        //}
         //_ = gdiff;
-        self.weights.data[i] -= lr * g * gdiff; // * p; //* gadj; //* p;
-
-        self.weights.EMA[i] += (smoothing * (w - wema)); //
-        //const aw = self.averageWeights[i];
-
+        self.weights.data[i] -= lr * g * gdiff;
+        self.weights.EMA[i] += (smoothing * (w - wema));
+        self.weights.moment[i] += smoothing * (@abs(g) - self.weights.moment[i]);
     }
     //1.0625
-    self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
+    //self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
 
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];
@@ -347,13 +365,12 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         const gdiff = 1.0 / (@abs(bema) + @abs(g - abdiff));
 
         self.biases.data[o] -= lr * g * gdiff;
-
         self.biases.EMA[o] += smoothing * (b - bema);
     }
 
     if (self.maxAvgGrad < wgstat.avgabs) {
         self.maxAvgGrad = wgstat.avgabs;
-        @memcpy(self.weights.EMA, self.weights.data);
+        //@memcpy(self.weights.EMA, self.weights.data);
     } else {
         self.maxAvgGrad -= wgstat.avgabs;
     }

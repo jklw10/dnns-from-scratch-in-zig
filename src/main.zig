@@ -17,7 +17,7 @@ const writeFile = true;
 const typesignature = "G25RRRR_G10R.f64";
 
 const graphfuncs = false;
-const reinit = false;
+const reinit = true;
 const l2_lambda = 0.0075;
 
 const epochs = 100;
@@ -243,7 +243,6 @@ pub fn shuffleWindows(r: anytype, comptime T: type, comptime size: usize, buf: [
 }
 
 pub fn Neuralnet(
-    //comptime layers: []const layerDescriptor,
     validationStorage: []Layer,
     storage: []Layer,
     dataset: anytype,

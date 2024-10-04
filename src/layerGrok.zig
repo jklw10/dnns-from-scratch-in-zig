@@ -17,6 +17,13 @@ const Param = struct {
             .moment2 = try alloc.alloc(f64, size),
         };
     }
+    fn insert(self: *Param, other: Param) void {
+        @memcpy(self.data[0..other.data.len], other.data);
+        @memcpy(self.grad[0..other.grad.len], other.grad);
+        @memcpy(self.EMA[0..other.EMA.len], other.EMA);
+        @memcpy(self.moment[0..other.moment.len], other.moment);
+        @memcpy(self.moment2[0..other.moment2.len], other.moment2);
+    }
 };
 
 dropOut: []bool,
@@ -56,8 +63,21 @@ const scale = 1.0 / (1.0 - dropOutRate);
 const usedrop = false;
 
 pub fn copyParams(self: *Self, other: Self) void {
-    self.weights = other.weights;
-    self.biases = other.biases;
+    self.weights.insert(other.weights);
+    self.biases.insert(other.biases);
+}
+pub fn rescale(self: *Self, other: Self) void {
+    self.weights.insert(other.weights);
+    self.biases.insert(other.biases);
+    for (other.inputSize * other.outputSize..self.inputSize * self.outputSize) |w| {
+        const dev = @as(f64, @floatFromInt(self.inputSize));
+        self.weights.data[w] = 0;
+        self.weights.EMA[w] = prng.random().floatNorm(f64) * @sqrt(2.0 / dev);
+    }
+    for (other.outputSize..self.outputSize) |b| {
+        self.biases.data[b] = 0;
+        self.biases.EMA[b] = prng.random().floatNorm(f64) * 0.01; //good value, great value, one of the greatest.
+    }
 }
 
 pub fn readParams(self: *Self, params: anytype) !void {
@@ -66,9 +86,6 @@ pub fn readParams(self: *Self, params: anytype) !void {
 
     _ = try params.read(std.mem.sliceAsBytes(self.weights.EMA));
     _ = try params.read(std.mem.sliceAsBytes(self.biases.EMA));
-
-    //_ = try params.read(std.mem.sliceAsBytes(self.EMAWeight));
-    //_ = try params.read(std.mem.sliceAsBytes(self.averageBiases));
 
     _ = try params.read(std.mem.asBytes(&self.normMulti));
     _ = try params.read(std.mem.asBytes(&self.normBias));
@@ -80,9 +97,6 @@ pub fn writeParams(self: *Self, params: anytype) !void {
 
     _ = try params.writeAll(std.mem.sliceAsBytes(self.weights.EMA));
     _ = try params.writeAll(std.mem.sliceAsBytes(self.biases.EMA));
-
-    //_ = try params.writeAll(std.mem.sliceAsBytes(self.EMAWeight));
-    //_ = try params.writeAll(std.mem.sliceAsBytes(self.averageBiases));
 
     _ = try params.writeAll(std.mem.asBytes(&self.normMulti));
     _ = try params.writeAll(std.mem.asBytes(&self.normBias));
@@ -160,8 +174,8 @@ pub fn init(
     @memcpy(returned.weights.moment, returned.weights.data);
     @memcpy(returned.biases.moment, returned.biases.data);
 
-    @memset(returned.weights.data, 0);
-    @memset(returned.biases.data, 0);
+    // @memset(returned.weights.data, 0);
+    //@memset(returned.biases.data, 0);
 
     //@memset(returned.biases.EMA, 0);
     //@memset(returned.weights.EMA, 0);
@@ -354,7 +368,7 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         self.weights.moment[i] += smoothing * (@abs(g) - self.weights.moment[i]);
     }
     //1.0625
-    //self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
+    self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
 
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];

@@ -11,13 +11,13 @@ const gaussian = @import("gaussian.zig");
 const std = @import("std");
 const timer = false;
 
-const readfile = false;
+const readfile = true;
 const writeFile = true;
 
 const typesignature = "G25RRRR_G10R.f64";
 
 const graphfuncs = false;
-const reinit = true;
+const reinit = false;
 const l2_lambda = 0.0075;
 
 const epochs = 100;
@@ -55,14 +55,23 @@ pub fn main() !void {
             .truncate = false,
         },
     );
-
     const default = uLayer.Relu;
-    const layers = [_]uLayer{
+
+    const fileL = [_]uLayer{
         .{ .LayerG = 25 }, default,
         .{ .LayerG = 25 }, .Reloid,
         .{ .LayerG = 25 }, .Reloid,
         .{ .LayerG = 25 }, .Reloid,
         .{ .LayerG = 10 }, default,
+    };
+    comptime var previousLayerSizeF = dataset.inputSize;
+
+    const layers = [_]uLayer{
+        .{ .LayerG = 100 }, default,
+        .{ .LayerG = 100 }, .Reloid,
+        .{ .LayerG = 100 }, .Reloid,
+        .{ .LayerG = 100 }, .Reloid,
+        .{ .LayerG = 10 },  default,
     };
     comptime var previousLayerSize = dataset.inputSize;
     var storage: [layers.len]Layer = undefined;
@@ -94,7 +103,31 @@ pub fn main() !void {
         if (readfile) {
             switch (storage[i]) {
                 .LayerG => |*l| {
-                    try l.readParams(&reader);
+                    var other = try layerInit(
+                        allocator,
+                        fileL[i],
+                        .{
+                            .batchSize = batchSize,
+                            .inputSize = previousLayerSize,
+                        },
+                    );
+                    switch (other) {
+                        .LayerG => |*la| {
+                            try la.readParams(&reader);
+                            l.rescale(la.*);
+                        },
+                        else => {},
+                    }
+                    //try callIfCanErr(&other, &reader, "readParams");
+                    //try callIfCanErr(&storage[i], &other, "rescale");
+                    //try other.readParams(&reader);
+
+                    //switch (other) {
+                    //    .LayerG => |la| {
+                    //        l.rescale(la);
+                    //    },
+                    //    else => {},
+                    //}
                     if (reinit) {
                         l.reinit(1.000);
                     }
@@ -106,6 +139,10 @@ pub fn main() !void {
                     //}
                 },
             }
+        }
+        switch (fileL[i]) {
+            .Layer, .LayerB, .LayerG => |size| previousLayerSizeF = size,
+            else => {},
         }
         switch (lay) {
             .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,

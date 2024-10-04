@@ -228,6 +228,20 @@ fn layerInit(alloc: std.mem.Allocator, comptime desc: uLayer, lcommon: anytype) 
     return layerType;
 }
 
+pub fn shuffleWindows(r: anytype, comptime T: type, comptime size: usize, buf: []T) void {
+    const MinInt = usize;
+    if (buf.len < 2) {
+        return;
+    }
+    // `i <= j < max <= maxInt(MinInt)`
+    const max: MinInt = @intCast(buf.len / size);
+    var i: MinInt = 0;
+    while (i < max - 1) : (i += 1) {
+        const j: MinInt = @intCast(r.random().intRangeLessThan(usize, i, max));
+        std.mem.swap([size]T, buf[i..][0..size], buf[j..][0..size]);
+    }
+}
+
 pub fn Neuralnet(
     //comptime layers: []const layerDescriptor,
     validationStorage: []Layer,
@@ -243,8 +257,11 @@ pub fn Neuralnet(
 
     const t = std.time.milliTimestamp();
     std.debug.print("Training... \n", .{});
+
+    var r = std.Random.DefaultPrng.init(245);
     // Do training
     for (0..epochs) |_| {
+        shuffleWindows(&r, f64, dataset.inputSize, dataset.train_images);
         // Do training
 
         for (0..dataset.trainSize / batchSize) |i| {

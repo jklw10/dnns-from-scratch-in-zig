@@ -120,7 +120,7 @@ pub fn init(
 ) !Self {
     const inputSize = lcommon.inputSize;
     const batchSize = lcommon.batchSize;
-    std.debug.print("i:{any},o:{any},b:{any}\n", .{ inputSize, outputSize, batchSize });
+    //std.debug.print("i:{any},o:{any},b:{any}\n", .{ inputSize, outputSize, batchSize });
     std.debug.assert(inputSize != 0);
     std.debug.assert(outputSize != 0);
     std.debug.assert(batchSize != 0);
@@ -208,7 +208,7 @@ pub fn forward(
             var i: usize = 0;
             while (i < self.inputSize) : (i += 1) {
                 const d = 1.0; // if (usedrop) 1.0 else @as(f64, @floatFromInt(@intFromBool(self.dropOut[self.outputSize * i + o]))) * self.nodrop;
-                const w = self.weights.data[i + self.inputSize * o];
+                const w = (self.weights.data[i + self.inputSize * o] + self.weights.EMA[i + self.inputSize * o]) / 2;
                 const in = inputs[b * self.inputSize + i];
                 sum += d * in * w;
             }
@@ -307,9 +307,9 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
 
     self.rounds += 1.0;
 
-    const He = @sqrt(2.0 / @as(f64, @floatFromInt(self.inputSize)));
+    const He = 2.0 / @as(f64, @floatFromInt(self.inputSize));
     _ = .{ awstat, wstat, He };
-    self.weights.grad = normalize(self.weights.grad, 1, 0, 1);
+    self.weights.grad = normalize(self.weights.grad, 2 - He, 0, 1);
 
     for (0..self.inputSize * self.outputSize) |i| {
         const w = self.weights.data[i];
@@ -335,8 +335,8 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         //const aw = self.averageWeights[i];
 
     }
-
-    //self.weights.data = normalize(self.weights.data, self.normMulti, self.normBias, 1);
+    //1.0625
+    self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
 
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];

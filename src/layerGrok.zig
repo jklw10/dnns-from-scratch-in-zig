@@ -31,16 +31,6 @@ dropOut: []bool,
 weights: Param,
 biases: Param,
 
-//weights: []f64,
-//weight_grads: []f64,
-//EMAWeight: []f64,
-//moment: []f64,
-//moment2: []f64,
-
-//biases: []f64,
-//bias_grads: []f64,
-//averageBiases: []f64,
-
 last_inputs: []const f64,
 fwd_out: []f64,
 bkw_out: []f64,
@@ -63,8 +53,8 @@ const scale = 1.0 / (1.0 - dropOutRate);
 const usedrop = false;
 
 pub fn copyParams(self: *Self, other: Self) void {
-    self.weights.insert(other.weights);
-    self.biases.insert(other.biases);
+    self.weights = other.weights;
+    self.biases = other.biases;
 }
 pub fn rescale(self: *Self, other: Self) void {
     self.weights.insert(other.weights);
@@ -76,7 +66,7 @@ pub fn rescale(self: *Self, other: Self) void {
     }
     for (other.outputSize..self.outputSize) |b| {
         self.biases.data[b] = 0;
-        self.biases.EMA[b] = prng.random().floatNorm(f64) * 0.01; //good value, great value, one of the greatest.
+        self.biases.EMA[b] = prng.random().floatNorm(f64) * 0.01;
     }
 }
 

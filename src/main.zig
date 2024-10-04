@@ -76,10 +76,9 @@ pub fn main() !void {
     comptime var previousLayerSize = dataset.inputSize;
     var storage: [layers.len]Layer = undefined;
     var validationStorage: [layers.len]Layer = undefined;
-    //var reader = std.io.limitedReader(file.reader(), (try file.stat()).size);
 
     var reader = std.io.bufferedReader(file.reader());
-    // Prep NN
+
     inline for (layers, 0..) |lay, i| {
         storage[i] = try layerInit(
             allocator,

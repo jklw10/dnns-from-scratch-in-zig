@@ -11,7 +11,7 @@ pub fn Data(
         test_images: []inputType,
         test_labels: []outputType,
         trainSize: usize,
-        outputSize: usize,
+        comptime outputSize: usize = dataDefinition.outputSize,
         validationSize: usize,
         comptime inputSize: usize = dataDefinition.inputSize,
         const Self = @This();
@@ -86,8 +86,16 @@ pub fn Data(
             try reader.skipBytes(formatter.skipBytes, .{});
 
             const data = try allocator.alloc(u8, formatter.size * count);
-
+            var first = true;
             for (0..count) |i| {
+                if (formatter.firstItem and first) {
+                    first = false;
+                    reader.readNoEof(data[i * formatter.size .. (i + 1) * formatter.size]) catch {
+                        std.debug.print("fuck: {any}, should be {any}", .{ (i + 1) * formatter.size, formatter.size * count });
+                        return error.eof;
+                    };
+                    continue;
+                }
                 reader.skipBytes(formatter.stride, .{}) catch {
                     std.debug.print("fuck: {any}, should be {any}", .{ (i + 1) * formatter.size, formatter.size * count });
                     return error.eof;
@@ -103,10 +111,10 @@ pub fn Data(
                 std.debug.print("fuck: {any}, should be {any}", .{ data.len, formatter.size * count });
             }
             defer allocator.free(data);
-            const train_images = try allocator.alloc(t, formatter.size * count);
-            formatter.format(t, train_images, data, count);
+            const dataOut = try allocator.alloc(t, formatter.size * count);
+            formatter.format(t, dataOut, data, count);
 
-            return train_images;
+            return dataOut;
         }
     };
 }
@@ -126,6 +134,7 @@ pub const mnist = struct {
     pub const ImageFormat = struct {
         const size = inputSize;
         const skipBytes = 16;
+        const firstItem = false;
         const stride = 0;
         pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
             for (0..size * inputCount) |i| {
@@ -137,6 +146,7 @@ pub const mnist = struct {
     pub const LabelFormat = struct {
         const size = 1;
         const skipBytes = 8;
+        const firstItem = false;
         const stride = 0;
         pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
             _ = inputCount;
@@ -160,6 +170,7 @@ pub const cifar = struct {
     pub const ImageFormat = struct {
         const size = 32 * 32 * 3;
         const skipBytes = 0;
+        const firstItem = false;
         const stride = 1;
         pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
             for (0..inputCount) |i| {
@@ -171,6 +182,7 @@ pub const cifar = struct {
     pub const LabelFormat = struct {
         const size = 1;
         const skipBytes = 0;
+        const firstItem = true;
         const stride = 3072;
         pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
             _ = inputCount;

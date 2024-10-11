@@ -2,16 +2,25 @@ const layer = @import("layer.zig");
 const layerB = @import("layerBias.zig");
 const layerG = @import("layerGrok.zig");
 const nll = @import("nll.zig");
+const diem = @import("diem.zig");
 const dataSet = @import("dataSet.zig");
 const relu = @import("relu.zig");
 const reloid = @import("reloid.zig");
 const pyramid = @import("pyramid.zig");
 const gaussian = @import("gaussian.zig");
+const pGaussian = @import("parGaussian.zig");
 
 const std = @import("std");
 const timer = false;
 
-const readfile = true;
+fn iter(a: usize, i: usize) usize {
+    return (i + a) * 25;
+}
+const itera = 0;
+const ps = iter(0, itera);
+const cs = iter(1, itera);
+
+const readfile = false;
 const writeFile = true;
 
 const typesignature = "G25RRRR_G10R.f64";
@@ -58,21 +67,22 @@ pub fn main() !void {
     const default = uLayer.Relu;
 
     const fileL = [_]uLayer{
-        .{ .LayerG = 25 }, default,
-        .{ .LayerG = 25 }, .Reloid,
-        .{ .LayerG = 25 }, .Reloid,
-        .{ .LayerG = 25 }, .Reloid,
+        .{ .LayerG = ps }, default,
+        .{ .LayerG = ps }, .Reloid,
+        .{ .LayerG = ps }, .Reloid,
+        .{ .LayerG = ps }, .Reloid,
         .{ .LayerG = 10 }, default,
     };
     comptime var previousLayerSizeF = dataset.inputSize;
 
     const layers = [_]uLayer{
-        .{ .LayerG = 100 }, default,
-        .{ .LayerG = 100 }, .Reloid,
-        .{ .LayerG = 100 }, .Reloid,
-        .{ .LayerG = 100 }, .Reloid,
-        .{ .LayerG = 10 },  default,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = 10 }, default,
     };
+
     comptime var previousLayerSize = dataset.inputSize;
     var storage: [layers.len]Layer = undefined;
     var validationStorage: [layers.len]Layer = undefined;
@@ -184,6 +194,7 @@ const uLayer = union(enum) {
     Relu: void,
     Pyramid: void,
     Gaussian: void,
+    PGaussian: void,
     Reloid: void,
 };
 const Layer = union(enum) {
@@ -194,6 +205,7 @@ const Layer = union(enum) {
     Relu: relu,
     Pyramid: pyramid,
     Gaussian: gaussian,
+    PGaussian: pGaussian,
     Reloid: reloid,
 
     fn forward(this: *@This(), args: anytype) void {
@@ -238,6 +250,7 @@ fn layerInit(alloc: std.mem.Allocator, comptime desc: uLayer, lcommon: anytype) 
         .Reloid => reloid,
         .Relu => relu,
         .Gaussian => gaussian,
+        .PGaussian => pGaussian,
         .Pyramid => pyramid,
     };
     const lconf = switch (desc) {
@@ -259,6 +272,7 @@ fn layerInit(alloc: std.mem.Allocator, comptime desc: uLayer, lcommon: anytype) 
         .Reloid => Layer{ .Reloid = ltt },
         .Pyramid => Layer{ .Pyramid = ltt },
         .Gaussian => Layer{ .Gaussian = ltt },
+        .PGaussian => Layer{ .PGaussian = ltt },
     };
 
     return layerType;
@@ -284,7 +298,17 @@ pub fn Neuralnet(
     dataset: anytype,
     allocator: std.mem.Allocator,
 ) ![]Layer {
-
+    var ba: usize = 0;
+    for (storage) |s| {
+        switch (s) {
+            .PGaussian => |l| {
+                ba += 1;
+                std.debug.print("l:{},p1:{any},p2:{any},p3:{any}\n", .{ ba, l.p1, l.p2, l.p3 });
+            },
+            else => {},
+        }
+    }
+    ba = 0;
     //const testImageCount = 10000;
 
     var weights = std.ArrayList([]f64).init(allocator);
@@ -325,7 +349,7 @@ pub fn Neuralnet(
             //    });
             //}
 
-            loss.nll(
+            loss.getLoss(
                 previousLayerOut,
                 targets,
                 weights.items,
@@ -401,10 +425,22 @@ pub fn Neuralnet(
             std.debug.print("time total: {}ms\n", .{std.time.milliTimestamp() - t});
         }
 
-        std.debug.print("{}\n", .{correct});
+        std.debug.print("{}", .{correct});
+        //std.debug.print(", l:{}", .{ stats(loss.loss).avg});
+        std.debug.print("\n", .{});
     }
     const ct = std.time.milliTimestamp();
     std.debug.print(" time total: {}ms\n", .{ct - t});
+
+    for (storage) |s| {
+        switch (s) {
+            .PGaussian => |l| {
+                ba += 1;
+                std.debug.print("l:{},p1:{},p2:{},p3:{}\n", .{ ba, l.p1, l.p2, l.p3 });
+            },
+            else => {},
+        }
+    }
     return storage;
 }
 const Stat = struct {

@@ -267,7 +267,7 @@ pub fn backwards(
                 //todo scale by variance of weight grad
                 self.weights.grad[i + self.inputSize * o] += (w / @as(f64, @floatFromInt(self.batchSize))); // * wadj; //  * drop;
                 self.bkw_out[b * self.inputSize + i] +=
-                    grads[b * self.outputSize + o] * self.weights.data[i + self.inputSize * o]; //  * drop;
+                    grads[b * self.outputSize + o] * funnyMulti(self.weights.data[i + self.inputSize * o], self.weights.EMA[i + self.inputSize * o]); //  * drop;
                 //}
             }
         }
@@ -327,7 +327,7 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
 
     const He = 2.0 / @as(f64, @floatFromInt(self.inputSize));
     _ = .{ awstat, wstat, He };
-    self.weights.grad = normalize(self.weights.grad, 2 - He, 0, 1);
+    //self.weights.grad = normalize(self.weights.grad, 2 - He, 0, 1);
 
     for (0..self.inputSize * self.outputSize) |i| {
         const wema = self.weights.EMA[i];
@@ -335,8 +335,8 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
 
         const l2 = lambda * w;
 
-        var g = self.weights.grad[i];
-
+        const abng = self.weights.grad[i];
+        var g = (abng - wgstat.avg) / wgstat.range * (2 - He);
         //_ = l2;
         g = g + l2; // + l2; // + EN;
         //todo, try normalize gradients.
@@ -346,16 +346,18 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         const awdiff = wema - w;
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
-
+        const moment = self.weights.moment[i];
+        const mdiff = @sqrt(1.0 / (moment + @abs(@abs(abng) - moment)));
         //if (self.weights.moment[i] < 1e-3) {
         //    self.weights.moment[i] = @abs(self.weights.data[i]);
         //    self.weights.data[i] = 0;
         //    std.debug.print("reinit", .{});
         //}
         //_ = gdiff;
-        self.weights.data[i] -= lr * g * gdiff;
+        _ = mdiff;
+        self.weights.data[i] -= lr * g * gdiff; // * mdiff;
         self.weights.EMA[i] += (smoothing * (w - wema));
-        self.weights.moment[i] += smoothing * (@abs(g) - self.weights.moment[i]);
+        self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
     }
     //1.0625
     self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
@@ -374,7 +376,8 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
 
     if (self.maxAvgGrad < wgstat.avgabs) {
         self.maxAvgGrad = wgstat.avgabs;
-        //@memcpy(self.weights.EMA, self.weights.data);
+        @memcpy(self.weights.EMA, self.weights.data);
+        //@memcpy(self.weights.moment, self.weights.grad);
     } else {
         self.maxAvgGrad -= wgstat.avgabs;
     }

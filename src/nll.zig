@@ -22,7 +22,9 @@ pub fn init(
     };
 }
 
-pub fn nll(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, lambda: f64) !void {
+pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, lambda: f64) !void {
+    std.debug.assert(targets.len == self.batchSize);
+    std.debug.assert(inputs.len == self.batchSize * self.inputSize);
     var l2_sum: f64 = 0.0;
     for (weights) |row| {
         for (row) |weight| {
@@ -63,7 +65,8 @@ pub fn nll(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, lambda: 
         }
 
         if (GiveLoss) {
-            //    self.loss[b] = -1 * @log(std.math.exp(inputs[b * self.inputSize] + targets[b]) / sum);
+            //std.debug.print("target:{}\n", .{targets[b]});
+            self.loss[b] = -1 * @log(std.math.exp(inputs[b * self.inputSize + targets[b]]) / sum);
         }
         for (0..self.inputSize) |i| {
             self.input_grads[b * self.inputSize + i] = std.math.exp(inputs[b * self.inputSize + i] - maxInput) / sum + l2_term;

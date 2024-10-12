@@ -12,20 +12,19 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.addIncludePath("./libs/opencl-headers");
+    exe.addIncludePath(b.path("libs/opencl-headers"));
 
     if (builtin.os.tag == .windows) {
-        std.debug.warn("Windows detected, adding default CUDA SDK x64 lib search path. Change this in build.zig if needed...");
-        exe.addLibraryPath("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v10.1/lib/x64");
+        std.debug.print("Windows detected, adding default CUDA SDK x64 lib search path. Change this in build.zig if needed...", .{});
+        exe.addLibraryPath(.{ .cwd_relative = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.6/lib/x64"});
         //TODO : amd support?
     }
     exe.linkSystemLibrary("c");
 
-    if (builtin.os.tag == .macos) {
-        exe.linkFramework("OpenCL");
-    } else {
+    if (builtin.os.tag == .linux) {
         exe.linkSystemLibrary("OpenCL");
     }
+
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

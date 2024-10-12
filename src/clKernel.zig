@@ -7,6 +7,10 @@ const c = @cImport({
 });
 
 device: c.cl_device_id,
+kernel: c.cl_kernel,
+input_buffer: c.cl_mem,
+output_buffer: c.cl_mem,
+command_queue: c.cl_command_queue,
 
 const Self = @This();
 
@@ -29,7 +33,8 @@ const CLError = error{
     EnqueueReadBufferFailed,
 };
 
-pub fn getDevice() CLError!c.cl_device_id {
+pub fn init() CLError!Self {
+    var returned: Self = undefined;
     var platform_ids: [16]c.cl_platform_id = undefined;
     var platform_count: c.cl_uint = undefined;
     if (c.clGetPlatformIDs(platform_ids.len, &platform_ids, &platform_count) != c.CL_SUCCESS) {
@@ -74,27 +79,24 @@ pub fn getDevice() CLError!c.cl_device_id {
 
     info("choosing device 0...", .{});
 
-    return device_ids[0];
-}
-fn getKernel(self: *Self) !void {
-    var device = self.device;
+    returned.device = device_ids[0];
     const program_src = @embedFile("kernels/test.cl");
     info("** running test **", .{});
 
-    const ctx = c.clCreateContext(null, 1, &device, null, null, null); // future: last arg is error code
+    const ctx = c.clCreateContext(null, 1, &returned.device, null, null, null); // future: last arg is error code
     if (ctx == null) {
         return CLError.CreateContextFailed;
     }
     defer _ = c.clReleaseContext(ctx);
 
-    const command_queue = c.clCreateCommandQueue(ctx, device, 0, null); // future: last arg is error code
-    if (command_queue == null) {
+    returned.command_queue = c.clCreateCommandQueue(ctx, returned.device, 0, null); // future: last arg is error code
+    if (returned.command_queue == null) {
         return CLError.CreateCommandQueueFailed;
     }
     defer {
-        _ = c.clFlush(command_queue);
-        _ = c.clFinish(command_queue);
-        _ = c.clReleaseCommandQueue(command_queue);
+        _ = c.clFlush(returned.command_queue);
+        _ = c.clFinish(returned.command_queue);
+        _ = c.clReleaseCommandQueue(returned.command_queue);
     }
 
     var program_src_c: [*c]const u8 = program_src;
@@ -104,65 +106,63 @@ fn getKernel(self: *Self) !void {
     }
     defer _ = c.clReleaseProgram(program);
 
-    if (c.clBuildProgram(program, 1, &device, null, null, null) != c.CL_SUCCESS) {
+    if (c.clBuildProgram(program, 1, &returned.device, null, null, null) != c.CL_SUCCESS) {
         return CLError.BuildProgramFailed;
     }
 
-    const kernel = c.clCreateKernel(program, "square_array", null);
-    if (kernel == null) {
+    returned.kernel = c.clCreateKernel(program, "square_array", null);
+    if (returned.kernel == null) {
         return CLError.CreateKernelFailed;
     }
-    defer _ = c.clReleaseKernel(kernel);
+    defer _ = c.clReleaseKernel(returned.kernel);
 
     // Create buffers
     var input_array = init: {
-        const init_value: [1024]i32 = undefined;
-        for (init_value, 0..) |*pt, i| {
-            pt.* = @intCast(i);
+        var init_value: [1024]i32 = undefined;
+        for (0..init_value.len) |i| {
+            init_value[i] = @intCast(i);
         }
         break :init init_value;
     };
-
-    const input_buffer = c.clCreateBuffer(ctx, c.CL_MEM_READ_ONLY, input_array.len * @sizeOf(i32), null, null);
-    if (input_buffer == null) {
+    returned.input_buffer = c.clCreateBuffer(ctx, c.CL_MEM_READ_ONLY, input_array.len * @sizeOf(i32), null, null);
+    if (returned.input_buffer == null) {
         return CLError.CreateBufferFailed;
     }
-    defer _ = c.clReleaseMemObject(input_buffer);
+    defer _ = c.clReleaseMemObject(returned.input_buffer);
 
-    const output_buffer = c.clCreateBuffer(ctx, c.CL_MEM_WRITE_ONLY, input_array.len * @sizeOf(i32), null, null);
-    if (output_buffer == null) {
+    returned.output_buffer = c.clCreateBuffer(ctx, c.CL_MEM_WRITE_ONLY, input_array.len * @sizeOf(i32), null, null);
+    if (returned.output_buffer == null) {
         return CLError.CreateBufferFailed;
     }
-    defer _ = c.clReleaseMemObject(output_buffer);
+    defer _ = c.clReleaseMemObject(returned.output_buffer);
 
     // Fill input buffer
-    if (c.clEnqueueWriteBuffer(command_queue, input_buffer, c.CL_TRUE, 0, input_array.len * @sizeOf(i32), &input_array, 0, null, null) != c.CL_SUCCESS) {
+    if (c.clEnqueueWriteBuffer(returned.command_queue, returned.input_buffer, c.CL_TRUE, 0, input_array.len * @sizeOf(i32), &input_array, 0, null, null) != c.CL_SUCCESS) {
         return CLError.EnqueueWriteBufferFailed;
     }
+
+    return returned;
 }
 
-pub fn init() !Self {
-    return .{device: getDevice()}.getKernel();
-}
-pub fn run(self: Self) CLError!void {
-    const device = self.device;
+pub fn run(self: *Self) CLError!void {
+    //const device = self.device;
+    //const kernel = self.kernel;
 
     // Execute kernel
-    if (c.clSetKernelArg(kernel, 0, @sizeOf(c.cl_mem), &input_buffer) != c.CL_SUCCESS) {
+    if (c.clSetKernelArg(self.kernel, 0, @sizeOf(c.cl_mem), self.input_buffer) != c.CL_SUCCESS) {
         return CLError.SetKernelArgFailed;
     }
-    if (c.clSetKernelArg(kernel, 1, @sizeOf(c.cl_mem), &output_buffer) != c.CL_SUCCESS) {
+    if (c.clSetKernelArg(self.kernel, 1, @sizeOf(c.cl_mem), self.output_buffer) != c.CL_SUCCESS) {
         return CLError.SetKernelArgFailed;
     }
-
-    var global_item_size: usize = input_array.len;
+    const global_item_size: usize = 1024;
     var local_item_size: usize = 64;
-    if (c.clEnqueueNDRangeKernel(command_queue, kernel, 1, null, &global_item_size, &local_item_size, 0, null, null) != c.CL_SUCCESS) {
+    if (c.clEnqueueNDRangeKernel(self.command_queue, self.kernel, 1, null, &global_item_size, &local_item_size, 0, null, null) != c.CL_SUCCESS) {
         return CLError.EnqueueNDRangeKernel;
     }
 
     var output_array: [1024]i32 = undefined;
-    if (c.clEnqueueReadBuffer(command_queue, output_buffer, c.CL_TRUE, 0, output_array.len * @sizeOf(i32), &output_array, 0, null, null) != c.CL_SUCCESS) {
+    if (c.clEnqueueReadBuffer(self.command_queue, self.output_buffer, c.CL_TRUE, 0, output_array.len * @sizeOf(i32), &output_array, 0, null, null) != c.CL_SUCCESS) {
         return CLError.EnqueueReadBufferFailed;
     }
 

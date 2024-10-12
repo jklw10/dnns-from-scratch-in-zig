@@ -20,6 +20,7 @@ const itera = 0;
 const ps = iter(0, itera);
 const cs = iter(1, itera);
 
+const resize = false;
 const readfile = false;
 const writeFile = true;
 
@@ -29,11 +30,13 @@ const graphfuncs = false;
 const reinit = false;
 const l2_lambda = 0.0075;
 
-const epochs = 100;
+const epochs = 200;
 const batchSize = 100;
 //todo perlayer configs
 
 pub fn main() !void {
+    //var asd = try @import("clKernel.zig").init();
+    //try asd.run();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     const allocator = gpa.allocator();
@@ -76,11 +79,11 @@ pub fn main() !void {
     comptime var previousLayerSizeF = dataset.inputSize;
 
     const layers = [_]uLayer{
-        .{ .LayerG = cs }, default,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = 10 }, default,
+        .{ .LayerG = cs + 3 }, .PGaussian, default,
+        .{ .LayerG = cs + 3 }, .PGaussian, .Reloid,
+        .{ .LayerG = cs + 3 }, .PGaussian, .Reloid,
+        .{ .LayerG = cs + 3 }, .PGaussian, .Reloid,
+        .{ .LayerG = 10 + 3 }, .PGaussian, default,
     };
 
     comptime var previousLayerSize = dataset.inputSize;
@@ -112,31 +115,25 @@ pub fn main() !void {
         if (readfile) {
             switch (storage[i]) {
                 .LayerG => |*l| {
-                    var other = try layerInit(
-                        allocator,
-                        fileL[i],
-                        .{
-                            .batchSize = batchSize,
-                            .inputSize = previousLayerSize,
-                        },
-                    );
-                    switch (other) {
-                        .LayerG => |*la| {
-                            try la.readParams(&reader);
-                            l.rescale(la.*);
-                        },
-                        else => {},
+                    if (resize) {
+                        var other = try layerInit(
+                            allocator,
+                            fileL[i],
+                            .{
+                                .batchSize = batchSize,
+                                .inputSize = previousLayerSize,
+                            },
+                        );
+                        switch (other) {
+                            .LayerG => |*la| {
+                                try la.readParams(&reader);
+                                l.rescale(la.*);
+                            },
+                            else => {},
+                        }
+                    } else {
+                        try l.readParams(&reader);
                     }
-                    //try callIfCanErr(&other, &reader, "readParams");
-                    //try callIfCanErr(&storage[i], &other, "rescale");
-                    //try other.readParams(&reader);
-
-                    //switch (other) {
-                    //    .LayerG => |la| {
-                    //        l.rescale(la);
-                    //    },
-                    //    else => {},
-                    //}
                     if (reinit) {
                         l.reinit(1.000);
                     }
@@ -149,12 +146,15 @@ pub fn main() !void {
                 },
             }
         }
-        switch (fileL[i]) {
-            .Layer, .LayerB, .LayerG => |size| previousLayerSizeF = size,
-            else => {},
+        if (resize) {
+            switch (fileL[i]) {
+                .Layer, .LayerB, .LayerG => |size| previousLayerSizeF = size,
+                else => {},
+            }
         }
         switch (lay) {
             .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
+            .PGaussian => previousLayerSize = previousLayerSize - 3,
             else => {},
         }
     }

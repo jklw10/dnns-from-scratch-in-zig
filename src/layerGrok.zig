@@ -267,7 +267,9 @@ pub fn backwards(
                 //todo scale by variance of weight grad
                 self.weights.grad[i + self.inputSize * o] += (w / @as(f64, @floatFromInt(self.batchSize))); // * wadj; //  * drop;
                 self.bkw_out[b * self.inputSize + i] +=
-                    grads[b * self.outputSize + o] * funnyMulti(self.weights.data[i + self.inputSize * o], self.weights.EMA[i + self.inputSize * o]); //  * drop;
+                    grads[b * self.outputSize + o] *
+                    self.weights.data[i + self.inputSize * o];
+                //funnyMulti(self.weights.data[i + self.inputSize * o], self.weights.EMA[i + self.inputSize * o]); //  * drop;
                 //}
             }
         }
@@ -346,6 +348,7 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         const awdiff = wema - w;
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
+
         const moment = self.weights.moment[i];
         const mdiff = @sqrt(1.0 / (moment + @abs(@abs(abng) - moment)));
         //if (self.weights.moment[i] < 1e-3) {
@@ -353,14 +356,13 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
         //    self.weights.data[i] = 0;
         //    std.debug.print("reinit", .{});
         //}
-        //_ = gdiff;
-        _ = mdiff;
+        _ = .{ mdiff, gdiff };
         self.weights.data[i] -= lr * g * gdiff; // * mdiff;
         self.weights.EMA[i] += (smoothing * (w - wema));
         self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
     }
     //1.0625
-    self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
+    //self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
 
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];

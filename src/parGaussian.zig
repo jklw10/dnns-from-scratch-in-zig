@@ -27,11 +27,11 @@ pub fn init(
     const size = lcommon.inputSize;
     const batchSize = lcommon.batchSize;
     return Self{
-        .last_inputs = try alloc.alloc(f64, (size + 3) * batchSize),
-        .fwd_out = try alloc.alloc(f64, size * batchSize),
-        .bkw_out = try alloc.alloc(f64, (size + 3) * batchSize),
+        .last_inputs = try alloc.alloc(f64, size * batchSize), //no alloc needed?
+        .fwd_out = try alloc.alloc(f64, (size - 3) * batchSize),
+        .bkw_out = try alloc.alloc(f64, size * batchSize),
         .batchSize = batchSize,
-        .size = (size + 3),
+        .size = size,
         .p1 = 1.0 + prng.random().floatNorm(f64) * 0.1,
         .p2 = prng.random().floatNorm(f64) / @as(f64, @floatFromInt(size)),
         .p3 = 0.5 + prng.random().floatNorm(f64) * 0.1,
@@ -61,29 +61,47 @@ fn gaussianFilterGradient(i: f64, p1: f64, p2: f64, p3: f64, p4: f64) struct { g
 pub fn forward(self: *Self, inputs: []f64) void {
     std.debug.assert(inputs.len == self.size * self.batchSize);
 
-    var i: usize = 3;
-    while (i < inputs.len) : (i += 1) {
-        self.fwd_out[i] = gaussianFilter(@as(f64, @floatFromInt(i)), inputs[0], inputs[1], inputs[2], inputs[i]);
+    for (0..self.batchSize) |b| {
+        for (0..(self.size - 3)) |i| {
+            const ind = b * (self.size - 3) + i;
+
+            self.fwd_out[ind] = gaussianFilter(
+                @as(f64, @floatFromInt(i)),
+                inputs[b * self.size + (self.size - 3)],
+                inputs[b * self.size + (self.size - 2)],
+                inputs[b * self.size + (self.size - 1)],
+                inputs[b * self.size + i],
+            );
+        }
     }
     self.last_inputs = inputs;
 }
 
 pub fn backwards(self: *Self, grads: []f64) void {
-    std.debug.assert(grads.len == self.size * self.batchSize);
-    self.grad1 = 0;
-    self.grad2 = 0;
-    self.grad3 = 0;
-    var i: usize = 3;
-    while (i < self.last_inputs.len) : (i += 1) {
-        const par = gaussianFilterGradient(@as(f64, @floatFromInt(i)), self.last_inputs[0], self.last_inputs[1], self.last_inputs[2], self.last_inputs[i]);
-        self.grad1 += grads[i - 3] * par.g1 / @as(f64, @floatFromInt(self.batchSize));
-        self.grad2 += grads[i - 3] * par.g2 / @as(f64, @floatFromInt(self.batchSize));
-        self.grad3 += grads[i - 3] * par.g3 / @as(f64, @floatFromInt(self.batchSize));
-        self.bkw_out[i] = grads[i] * par.g4;
+    std.debug.assert(grads.len == (self.size - 3) * self.batchSize);
+
+    for (0..self.batchSize) |b| {
+        var grad1: f64 = 0;
+        var grad2: f64 = 0;
+        var grad3: f64 = 0;
+        for (0..(self.size - 3)) |i| {
+            const ind = b * (self.size - 3) + i;
+            const par = gaussianFilterGradient(
+                @as(f64, @floatFromInt(i)),
+                self.last_inputs[b * self.size + (self.size - 3)],
+                self.last_inputs[b * self.size + (self.size - 2)],
+                self.last_inputs[b * self.size + (self.size - 1)],
+                self.last_inputs[b * self.size + i],
+            );
+            grad1 += grads[ind] * par.g1 / @as(f64, @floatFromInt(self.batchSize));
+            grad2 += grads[ind] * par.g2 / @as(f64, @floatFromInt(self.batchSize));
+            grad3 += grads[ind] * par.g3 / @as(f64, @floatFromInt(self.batchSize));
+            self.bkw_out[b * self.size + i] = grads[ind] * par.g4;
+        }
+        self.bkw_out[b * self.size + (self.size - 3)] = self.grad1;
+        self.bkw_out[b * self.size + (self.size - 2)] = self.grad2;
+        self.bkw_out[b * self.size + (self.size - 1)] = self.grad3;
     }
-    self.bkw_out[0] = self.grad1;
-    self.bkw_out[1] = self.grad2;
-    self.bkw_out[2] = self.grad3;
 }
 const lr = 0.001;
 

@@ -309,7 +309,7 @@ fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
 }
 
 const roundsPerEp = 60000 / 100;
-const lr = 0.001;
+const lr = 0.0001;
 const smoothing = 0.1;
 const normlr = lr / 10.0;
 
@@ -364,6 +364,7 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
     //1.0625
     //self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
 
+    self.biases.grad = normalize(self.biases.grad, 2 - He, 0, 1);
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];
         const bema = self.biases.EMA[o];

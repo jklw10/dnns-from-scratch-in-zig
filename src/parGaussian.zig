@@ -98,9 +98,9 @@ pub fn backwards(self: *Self, grads: []f64) void {
             grad3 += grads[ind] * par.g3 / @as(f64, @floatFromInt(self.batchSize));
             self.bkw_out[b * self.size + i] = grads[ind] * par.g4;
         }
-        self.bkw_out[b * self.size + (self.size - 3)] = self.grad1;
-        self.bkw_out[b * self.size + (self.size - 2)] = self.grad2;
-        self.bkw_out[b * self.size + (self.size - 1)] = self.grad3;
+        self.bkw_out[b * self.size + (self.size - 3)] = grad1;
+        self.bkw_out[b * self.size + (self.size - 2)] = grad2;
+        self.bkw_out[b * self.size + (self.size - 1)] = grad3;
     }
 }
 const lr = 0.001;

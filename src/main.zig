@@ -79,11 +79,11 @@ pub fn main() !void {
     comptime var previousLayerSizeF = dataset.inputSize;
 
     const layers = [_]uLayer{
-        .{ .LayerG = cs + 3 }, .PGaussian, default,
-        .{ .LayerG = cs + 3 }, .PGaussian, .Reloid,
-        .{ .LayerG = cs + 3 }, .PGaussian, .Reloid,
-        .{ .LayerG = cs + 3 }, .PGaussian, .Reloid,
-        .{ .LayerG = 10 + 3 }, .PGaussian, default,
+        .{ .LayerG = cs + 3 }, default, .PGaussian,
+        .{ .LayerG = cs + 3 }, .Reloid, .PGaussian,
+        .{ .LayerG = cs + 3 }, .Reloid, .PGaussian,
+        .{ .LayerG = cs + 3 }, .Reloid, .PGaussian,
+        .{ .LayerG = 10 + 3 }, default, .PGaussian,
     };
 
     comptime var previousLayerSize = dataset.inputSize;

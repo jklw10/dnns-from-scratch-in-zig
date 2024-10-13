@@ -150,9 +150,11 @@ pub fn init(
         .rounds = -60000 / 100,
         .nodrop = 1.0,
     };
-    for (0..inputSize * outputSize) |w| {
-        const dev = @as(f64, @floatFromInt(inputSize));
-        returned.weights.data[w] = prng.random().floatNorm(f64) * @sqrt(2.0 / dev);
+    for (0..inputSize) |i| {
+        for (0..outputSize) |o| {
+            const dev = @as(f64, @floatFromInt(inputSize));
+            returned.weights.data[i * outputSize + o] = prng.random().floatNorm(f64) * @sqrt(2.0 / dev);
+        }
     }
     for (0..outputSize) |b| {
         returned.biases.data[b] = prng.random().floatNorm(f64) * 0.01; //good value, great value, one of the greatest.
@@ -164,7 +166,7 @@ pub fn init(
     @memcpy(returned.weights.moment, returned.weights.data);
     @memcpy(returned.biases.moment, returned.biases.data);
 
-    // @memset(returned.weights.data, 0);
+    //@memset(returned.weights.data, 0);
     //@memset(returned.biases.data, 0);
 
     //@memset(returned.biases.EMA, 0);
@@ -309,7 +311,7 @@ fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
 }
 
 const roundsPerEp = 60000 / 100;
-const lr = 0.0001;
+const lr = 0.001;
 const smoothing = 0.1;
 const normlr = lr / 10.0;
 
@@ -363,8 +365,8 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
     }
     //1.0625
     //self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
-
-    self.biases.grad = normalize(self.biases.grad, 2 - He, 0, 1);
+    //TODO: test this:
+    //self.biases.grad = normalize(self.biases.grad, 2 - He, 0, 1);
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];
         const bema = self.biases.EMA[o];
@@ -379,7 +381,8 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
 
     if (self.maxAvgGrad < wgstat.avgabs) {
         self.maxAvgGrad = wgstat.avgabs;
-        @memcpy(self.weights.EMA, self.weights.data);
+        //TODO: test this:
+        //@memcpy(self.weights.EMA, self.weights.data);
         //@memcpy(self.weights.moment, self.weights.grad);
     } else {
         self.maxAvgGrad -= wgstat.avgabs;

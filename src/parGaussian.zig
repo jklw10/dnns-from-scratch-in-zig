@@ -6,13 +6,6 @@ bkw_out: []f64,
 batchSize: usize,
 size: usize,
 
-grad1: f64 = 0.0,
-grad2: f64 = 0.0,
-grad3: f64 = 0.0,
-p1: f64 = 1.0, //flatness
-p2: f64 = 1.0, // width of the bump
-p3: f64 = 1.0, // center of the bump
-
 var prng = std.Random.DefaultPrng.init(123);
 const Self = @This();
 
@@ -32,9 +25,9 @@ pub fn init(
         .bkw_out = try alloc.alloc(f64, size * batchSize),
         .batchSize = batchSize,
         .size = size,
-        .p1 = 1.0 + prng.random().floatNorm(f64) * 0.1,
-        .p2 = prng.random().floatNorm(f64) / @as(f64, @floatFromInt(size)),
-        .p3 = 0.5 + prng.random().floatNorm(f64) * 0.1,
+        //.p1 = 1.0 + prng.random().floatNorm(f64) * 0.1,
+        //.p2 = prng.random().floatNorm(f64) / @as(f64, @floatFromInt(size)),
+        //.p3 = 0.5 + prng.random().floatNorm(f64) * 0.1,
     };
 }
 
@@ -102,12 +95,4 @@ pub fn backwards(self: *Self, grads: []f64) void {
         self.bkw_out[b * self.size + (self.size - 2)] = grad2;
         self.bkw_out[b * self.size + (self.size - 1)] = grad3;
     }
-}
-const lr = 0.001;
-
-pub fn applyGradients(self: *Self, lambda: f64) void {
-    _ = lambda;
-    self.p1 -= self.grad1 * lr;
-    self.p2 -= self.grad2 * lr;
-    self.p3 -= self.grad3 * lr;
 }

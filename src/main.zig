@@ -30,7 +30,7 @@ const graphfuncs = false;
 const reinit = false;
 const l2_lambda = 0.0075;
 
-const epochs = 200;
+const epochs = 100;
 const batchSize = 100;
 //todo perlayer configs
 
@@ -77,13 +77,13 @@ pub fn main() !void {
         .{ .LayerG = 10 }, default,
     };
     comptime var previousLayerSizeF = dataset.inputSize;
-
+    //TODO: test this:
     const layers = [_]uLayer{
-        .{ .LayerG = cs + 3 }, default, .PGaussian,
-        .{ .LayerG = cs + 3 }, .Reloid, .PGaussian,
-        .{ .LayerG = cs + 3 }, .Reloid, .PGaussian,
-        .{ .LayerG = cs + 3 }, .Reloid, .PGaussian,
-        .{ .LayerG = 10 + 3 }, default, .PGaussian,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = 10 }, default,
     };
 
     comptime var previousLayerSize = dataset.inputSize;
@@ -298,17 +298,6 @@ pub fn Neuralnet(
     dataset: anytype,
     allocator: std.mem.Allocator,
 ) ![]Layer {
-    var ba: usize = 0;
-    for (storage) |s| {
-        switch (s) {
-            .PGaussian => |l| {
-                ba += 1;
-                std.debug.print("l:{},p1:{any},p2:{any},p3:{any}\n", .{ ba, l.p1, l.p2, l.p3 });
-            },
-            else => {},
-        }
-    }
-    ba = 0;
     //const testImageCount = 10000;
 
     var weights = std.ArrayList([]f64).init(allocator);
@@ -432,15 +421,6 @@ pub fn Neuralnet(
     const ct = std.time.milliTimestamp();
     std.debug.print(" time total: {}ms\n", .{ct - t});
 
-    for (storage) |s| {
-        switch (s) {
-            .PGaussian => |l| {
-                ba += 1;
-                std.debug.print("l:{},p1:{},p2:{},p3:{}\n", .{ ba, l.p1, l.p2, l.p3 });
-            },
-            else => {},
-        }
-    }
     return storage;
 }
 const Stat = struct {

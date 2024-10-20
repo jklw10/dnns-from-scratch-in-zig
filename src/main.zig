@@ -10,33 +10,36 @@ const pyramid = @import("pyramid.zig");
 const gaussian = @import("gaussian.zig");
 const pGaussian = @import("parGaussian.zig");
 
+const utils = @import("utils.zig");
 const std = @import("std");
+
 const timer = false;
 
-fn iter(a: usize, i: usize) usize {
-    return (i + a) * 25;
-}
-const itera = 0;
-const ps = iter(0, itera);
-const cs = iter(1, itera);
+const scheduleItem = struct {
+    epochs: usize,
+    hLSize: usize,
+};
+const schedule = [_]scheduleItem{
+    .{ .epochs = 25, .hLSize = 10 },
+    .{ .epochs = 10, .hLSize = 25 },
+    .{ .epochs = 5, .hLSize = 40 },
+    .{ .epochs = 5, .hLSize = 100 },
+};
 
-const resize = false;
-const readfile = false;
-const writeFile = true;
-
-const typesignature = "G25RRRR_G10R.f64";
+const continueFrom = 0;
+//todo perlayer configs
+const l2_lambda = 0.0075;
+const m = std.math;
+const regDim: f64 = m.phi;
 
 const graphfuncs = false;
-const reinit = false;
-const l2_lambda = 0.0075;
+const multiIter = true;
 
-const epochs = 100;
-const batchSize = 100;
-//todo perlayer configs
+const fileSignature = "G25RRRR_G10R.f64";
+
+const reinit = false;
 
 pub fn main() !void {
-    //var asd = try @import("clKernel.zig").init();
-    //try asd.run();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     const allocator = gpa.allocator();
@@ -45,23 +48,74 @@ pub fn main() !void {
     defer dataset.deinit(allocator);
 
     if (graphfuncs) {
-        var inputs: [200]f64 = undefined;
-        var pyr = try gaussian.init(allocator, 1, 200);
-        for (inputs, 0..) |_, i| {
-            inputs[i] = (-100 + @as(f64, @floatFromInt(i))) / 20;
-        }
-
-        pyr.forward(&inputs);
-        pyr.backwards(&inputs);
-        for (inputs, 0..) |_, i| {
-            std.debug.print("{d:.4},", .{inputs[i]});
-            std.debug.print("{d:.4},", .{gaussian.leaky_gaussian(inputs[i])});
-            std.debug.print("{d:.4}\n", .{gaussian.leaky_gaussian_derivative(inputs[i])});
-        }
+        utils.graphFunc(gaussian);
     }
 
+    comptime var itera: usize = continueFrom;
+
+    std.debug.print("Training... \n", .{});
+
+    const t = std.time.milliTimestamp();
+    inline while (itera < schedule.len and multiIter) : (itera += 1) {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        try runSchedule(itera, dataset, arena.allocator());
+        arena.deinit();
+    }
+
+    const ct = std.time.milliTimestamp();
+
+    std.debug.print("time total: {}\n", .{ct - t});
+}
+
+fn initLayers(comptime layers: []const uLayer, config: anytype, dataset: anytype, allocator: std.mem.Allocator) ![layers.len]Layer {
+    comptime var previousLayerSize = dataset.inputSize;
+    var storage: [layers.len]Layer = undefined;
+    inline for (layers, 0..) |lay, i| {
+        storage[i] = try layerInit(
+            allocator,
+            lay,
+            .{
+                .batchSize = config.batchSize,
+                .inputSize = previousLayerSize,
+            },
+        );
+        if (config.deinitbkw) {
+            switch (storage[i]) {
+                inline else => |*l| l.deinitBackwards(allocator),
+            }
+        }
+        switch (lay) {
+            .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
+            .PGaussian => previousLayerSize = previousLayerSize - 3,
+            else => {},
+        }
+    }
+    return storage;
+}
+
+fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Allocator) !void {
+    const first = itera == 0;
+
+    const resize = !first;
+    const readfile = !first;
+    const writeFile = true;
+
+    const batchSize = 100;
+    const epochs = schedule[itera].epochs;
+    const ps = if (!first) schedule[itera - 1].hLSize else 0;
+    const cs = schedule[itera].hLSize;
+
+    var sum: usize = 0;
+    for (schedule[0..itera]) |elem| {
+        sum += elem.epochs;
+    }
+    const pastEp = sum;
+    //std.debug.print("last:{}", .{primes100[primes100.len - 1]});
+    //var asd = try @import("clKernel.zig").init();
+    //try asd.run();
+
     const file = try std.fs.cwd().createFile(
-        "data/Params_" ++ typesignature,
+        "data/Params_" ++ fileSignature,
         .{
             .read = true,
             .truncate = false,
@@ -77,8 +131,8 @@ pub fn main() !void {
         .{ .LayerG = 10 }, default,
     };
     comptime var previousLayerSizeF = dataset.inputSize;
-    //TODO: test this:
-    const layers = [_]uLayer{
+    //TODO: test PGaussian
+    const layers = comptime [_]uLayer{
         .{ .LayerG = cs }, default,
         .{ .LayerG = cs }, .Reloid,
         .{ .LayerG = cs }, .Reloid,
@@ -86,76 +140,45 @@ pub fn main() !void {
         .{ .LayerG = 10 }, default,
     };
 
-    comptime var previousLayerSize = dataset.inputSize;
-    var storage: [layers.len]Layer = undefined;
-    var validationStorage: [layers.len]Layer = undefined;
+    var storage = try initLayers(
+        &layers,
+        .{ .deinitbkw = false, .batchSize = batchSize },
+        dataset,
+        allocator,
+    );
+    var validationStorage = try initLayers(
+        &layers,
+        .{ .deinitbkw = true, .batchSize = dataset.validationSize },
+        dataset,
+        allocator,
+    );
 
     var reader = std.io.bufferedReader(file.reader());
 
-    inline for (layers, 0..) |lay, i| {
-        storage[i] = try layerInit(
-            allocator,
-            lay,
-            .{
-                .batchSize = batchSize,
-                .inputSize = previousLayerSize,
-            },
-        );
-        validationStorage[i] = try layerInit(
-            allocator,
-            lay,
-            .{
-                .batchSize = dataset.validationSize,
-                .inputSize = previousLayerSize,
-            },
-        );
-        switch (validationStorage[i]) {
-            inline else => |*l| l.deinitBackwards(allocator),
-        }
-        if (readfile) {
-            switch (storage[i]) {
-                .LayerG => |*l| {
-                    if (resize) {
-                        var other = try layerInit(
-                            allocator,
-                            fileL[i],
-                            .{
-                                .batchSize = batchSize,
-                                .inputSize = previousLayerSize,
-                            },
-                        );
-                        switch (other) {
-                            .LayerG => |*la| {
-                                try la.readParams(&reader);
-                                l.rescale(la.*);
-                            },
-                            else => {},
-                        }
-                    } else {
-                        try l.readParams(&reader);
-                    }
-                    if (reinit) {
-                        l.reinit(1.000);
-                    }
-                },
-                inline else => {
-                    try callIfCanErr(&storage[i], &reader, "readParams");
-                    //if (@hasDecl(@TypeOf(l.*), "readParams")) {
-                    //    try l.readParams(&reader);
-                    //}
-                },
+    if (readfile) {
+        inline for (fileL, 0..) |lay, i| {
+            if (resize) {
+                var other = try layerInit(
+                    allocator,
+                    lay,
+                    .{
+                        .batchSize = batchSize,
+                        .inputSize = previousLayerSizeF,
+                    },
+                );
+                try utils.callIfCanErr(&other, &reader, "readParams");
+                utils.callIfTypeMatch(&storage[i], other, "rescale");
+                switch (lay) {
+                    .Layer, .LayerB, .LayerG => |size| previousLayerSizeF = size,
+                    .PGaussian => previousLayerSizeF = previousLayerSizeF - 3,
+                    else => {},
+                }
+            } else {
+                try utils.callIfCanErr(&storage[i], &reader, "readParams");
             }
-        }
-        if (resize) {
-            switch (fileL[i]) {
-                .Layer, .LayerB, .LayerG => |size| previousLayerSizeF = size,
-                else => {},
+            if (reinit) {
+                try utils.callIfCanErr(&storage[i], 1.0, "reinit");
             }
-        }
-        switch (lay) {
-            .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
-            .PGaussian => previousLayerSize = previousLayerSize - 3,
-            else => {},
         }
     }
 
@@ -165,12 +188,13 @@ pub fn main() !void {
         &validationStorage,
         &storage,
         dataset,
+        .{ .epochs = epochs, .batchSize = batchSize, .from = pastEp },
         allocator,
     );
 
     if (writeFile) {
         const filew = try std.fs.cwd().createFile(
-            "data/Params_" ++ typesignature,
+            "data/Params_" ++ fileSignature,
             .{
                 .read = true,
                 .truncate = true,
@@ -178,11 +202,7 @@ pub fn main() !void {
         );
         defer filew.close();
         for (0..k.len) |l| {
-            try callIfCanErr(&k[l], filew, "writeParams");
-            //switch (k[l]) {
-            //    inline else => |*la| {
-            //    },
-            //}
+            try utils.callIfCanErr(&k[l], filew, "writeParams");
         }
     }
 }
@@ -219,27 +239,10 @@ const Layer = union(enum) {
         }
     }
     fn applyGradients(this: *@This(), args: anytype) void {
-        callIfCan(this, args, "applyGradients");
+        utils.callIfCan(this, args, "applyGradients");
     }
 };
-fn callIfCan(t: anytype, args: anytype, comptime name: []const u8) void {
-    switch (t.*) {
-        inline else => |*l| {
-            if (@hasDecl(@TypeOf(l.*), name)) {
-                @field(@TypeOf(l.*), name)(l, args);
-            }
-        },
-    }
-}
-fn callIfCanErr(t: anytype, args: anytype, comptime name: []const u8) !void {
-    switch (t.*) {
-        inline else => |*l| {
-            if (@hasDecl(@TypeOf(l.*), name)) {
-                try @field(@TypeOf(l.*), name)(l, args);
-            }
-        },
-    }
-}
+
 fn layerInit(alloc: std.mem.Allocator, comptime desc: uLayer, lcommon: anytype) !Layer {
     //comptime var lsize = 0;
 
@@ -296,22 +299,31 @@ pub fn Neuralnet(
     validationStorage: []Layer,
     storage: []Layer,
     dataset: anytype,
+    config: anytype,
     allocator: std.mem.Allocator,
 ) ![]Layer {
-    //const testImageCount = 10000;
-
+    const batchSize = config.batchSize;
     var weights = std.ArrayList([]f64).init(allocator);
     var loss = try nll.init(dataset.outputSize, batchSize, allocator);
 
+    for (storage) |*current| {
+        switch (current.*) {
+            inline else => |*currentLayer| {
+                if (@hasField(@TypeOf(current.*), "weights")) {
+                    try weights.append(currentLayer.weights);
+                }
+            },
+        }
+    }
+
     const t = std.time.milliTimestamp();
-    std.debug.print("Training... \n", .{});
 
     var r = std.Random.DefaultPrng.init(245);
+
     // Do training
-    for (0..epochs) |_| {
+    for (0..config.epochs) |e| {
         shuffleWindows(&r, f64, dataset.inputSize, dataset.train_images);
         // Do training
-
         for (0..dataset.trainSize / batchSize) |i| {
 
             // Prep inputs and targets
@@ -324,9 +336,6 @@ pub fn Neuralnet(
             for (storage) |*current| {
                 switch (current.*) {
                     inline else => |*currentLayer| {
-                        if (@hasField(@TypeOf(current.*), "weights")) {
-                            try weights.append(currentLayer.weights);
-                        }
                         currentLayer.forward(previousLayerOut);
                         previousLayerOut = currentLayer.fwd_out;
                     },
@@ -342,11 +351,11 @@ pub fn Neuralnet(
                 previousLayerOut,
                 targets,
                 weights.items,
-                l2_lambda,
+                .{ .lambda = l2_lambda, .regDim = regDim },
             ) catch |err| {
                 //std.debug.print("batch number: {}, time delta: {}ms\n", .{ i * batchSize, std.time.milliTimestamp() - t });
                 std.debug.print("loss err: {any}\n", .{
-                    stats(loss.loss).avg,
+                    utils.stats(loss.loss).avg,
                 });
                 return err;
             };
@@ -362,9 +371,22 @@ pub fn Neuralnet(
             }
             //use last gradient as a scalar for an optimizer?
             // Update network
-            //stats(previousGradient).avgabs;
+            //utils.stats(previousGradient).avgabs;
+            const ep = @as(f64, @floatFromInt(e + config.from));
+
+            const adj1 = 1.0 / (@trunc(ep / 10) + 1.0);
+            const adjideal1 = 1.0 / (@trunc((ep) / 10) + 1.0 / @sqrt(0.6));
+            const adj2 = 1.0 / (ep / 10.0 + 1.0);
+            const adjideal2 = 1.0 / (ep / 10.0 + 1.0 / @sqrt(0.6));
+            //const adj3 = 1 / (@as(f64, @floatFromInt(e)) / std.math.phi + 1);
+            // std.debug.print("time total: {}ms\n", .{std.time.milliTimestamp() - t});
+            _ = .{ e, adj2, adj1, adjideal1, adjideal2 };
+            //std.debug.print("{}", .{1 / utils.primes100[e / 10]});
+            //const primeadj = 1 / utils.primes100[e / 10];
+
+            const lr = 0.01 * adj2 * adj2;
             for (storage) |*current| {
-                current.applyGradients(l2_lambda);
+                current.applyGradients(.{ .lambda = l2_lambda, .lr = lr, .regDim = regDim });
             }
         }
 
@@ -411,39 +433,19 @@ pub fn Neuralnet(
         }
         correct = correct / @as(f64, @floatFromInt(dataset.validationSize));
         if (timer) {
-            std.debug.print("time total: {}ms\n", .{std.time.milliTimestamp() - t});
+            std.debug.print("time epoch: {}ms\n", .{std.time.milliTimestamp() - t});
         }
 
         std.debug.print("{}", .{correct});
-        //std.debug.print(", l:{}", .{ stats(loss.loss).avg});
+        // std.debug.print(", l:{}", .{stats(loss.loss).avg});
         std.debug.print("\n", .{});
     }
-    const ct = std.time.milliTimestamp();
-    std.debug.print(" time total: {}ms\n", .{ct - t});
+    if (timer) {
+        const ct = std.time.milliTimestamp();
+        std.debug.print(" time schedule: {}ms\n", .{ct - t});
+    }
 
     return storage;
-}
-const Stat = struct {
-    range: f64,
-    avg: f64,
-    avgabs: f64,
-};
-fn stats(arr: []f64) Stat {
-    var min: f64 = std.math.floatMax(f64);
-    var max: f64 = -min;
-    var sum: f64 = 0.000000001;
-    var absum: f64 = 0.000000001;
-    for (arr) |elem| {
-        if (min > elem) min = elem;
-        if (max < elem) max = elem;
-        sum += elem;
-        absum += @abs(elem);
-    }
-    return Stat{
-        .range = @max(0.000000001, @abs(max - min)),
-        .avg = sum / @as(f64, @floatFromInt(arr.len)),
-        .avgabs = absum / @as(f64, @floatFromInt(arr.len)),
-    };
 }
 
 test "Forward once" {

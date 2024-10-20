@@ -1,5 +1,5 @@
 const std = @import("std");
-
+const utils = @import("utils.zig");
 const Self = @This();
 
 const Param = struct {
@@ -31,6 +31,10 @@ dropOut: []bool,
 weights: Param,
 biases: Param,
 
+maxAvgGrad: f64 = 0,
+normMulti: f64 = 1,
+normBias: f64 = 0,
+
 last_inputs: []const f64,
 fwd_out: []f64,
 bkw_out: []f64,
@@ -38,10 +42,6 @@ bkw_out: []f64,
 batchSize: usize,
 inputSize: usize,
 outputSize: usize,
-
-maxAvgGrad: f64 = 0,
-normMulti: f64 = 1,
-normBias: f64 = 0,
 
 nodrop: f64 = 1.0,
 rounds: f64 = batchdropskip + 1,
@@ -83,9 +83,9 @@ pub fn readParams(self: *Self, params: anytype) !void {
 }
 pub fn writeParams(self: *Self, params: anytype) !void {
     _ = try params.writeAll(std.mem.sliceAsBytes(self.weights.data));
-    _ = try params.writeAll(std.mem.sliceAsBytes(self.biases.data));
-
     _ = try params.writeAll(std.mem.sliceAsBytes(self.weights.EMA));
+
+    _ = try params.writeAll(std.mem.sliceAsBytes(self.biases.data));
     _ = try params.writeAll(std.mem.sliceAsBytes(self.biases.EMA));
 
     _ = try params.writeAll(std.mem.asBytes(&self.normMulti));
@@ -234,9 +234,6 @@ pub fn forward(
     }
     self.last_inputs = inputs;
 }
-fn funnyMulti(x: f64, y: f64) f64 {
-    return std.math.sign(x) * @sqrt(@abs(x * y));
-}
 
 pub fn backwards(
     self: *Self,
@@ -277,57 +274,30 @@ pub fn backwards(
         }
     }
 }
-
-const Stat = struct {
-    range: f64,
-    avg: f64,
-    avgabs: f64,
-};
-
-fn stats(arr: []f64) Stat {
-    var min: f64 = std.math.floatMax(f64);
-    var max: f64 = -min;
-    var sum: f64 = 0.000000001;
-    var absum: f64 = 0.000000001;
-    for (arr) |elem| {
-        if (min > elem) min = elem;
-        if (max < elem) max = elem;
-        sum += elem;
-        absum += @abs(elem);
-    }
-    return Stat{
-        .range = @max(0.000000001, @abs(max - min)),
-        .avg = sum / @as(f64, @floatFromInt(arr.len)),
-        .avgabs = absum / @as(f64, @floatFromInt(arr.len)),
-    };
+fn funnyMulti(x: f64, y: f64) f64 {
+    return std.math.sign(x) * @sqrt(@abs(x * y));
 }
-
-fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
-    const gv = stats(arr);
-    for (0..arr.len) |i| {
-        arr[i] -= alpha * (arr[i] - (((arr[i] - gv.avg) / gv.range * multi) + bias));
-    }
-    return arr;
-}
-
 const roundsPerEp = 60000 / 100;
-const lr = 0.001;
+//const lr = 0.0005;
 const smoothing = 0.1;
-const normlr = lr / 10.0;
 
 //best on its own: 0.0075;
 //const lambda = 0.0075;
 const elasticAlpha = 0.0;
 
-pub fn applyGradients(self: *Self, lambda: f64) void {
-    const awstat = stats(self.weights.EMA);
-    const wstat = stats(self.weights.data);
-    const wgstat = stats(self.weights.grad);
+pub fn applyGradients(self: *Self, config: anytype) void {
+    self.rounds += 1.0;
+    const lambda = config.lambda;
+    const lr = config.lr; // / ((self.rounds / roundsPerEp) + 1);
+
+    const normlr = lr / 10.0;
+
+    const awstat = utils.stats(self.weights.EMA);
+    const wstat = utils.stats(self.weights.data);
+    const wgstat = utils.stats(self.weights.grad);
 
     self.normMulti -= normlr * (wgstat.range - self.normMulti);
     //self.normBias -= wgstat.avg * normlr;
-
-    self.rounds += 1.0;
 
     const He = 2.0 / @as(f64, @floatFromInt(self.inputSize));
     _ = .{ awstat, wstat, He };
@@ -335,38 +305,44 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
 
     for (0..self.inputSize * self.outputSize) |i| {
         const wema = self.weights.EMA[i];
-        const w = funnyMulti(self.weights.data[i], wema);
+        const w = self.weights.data[i]; //funnyMulti(self.weights.data[i], wema);
+        const fw = funnyMulti(self.weights.data[i], wema);
 
-        const l2 = lambda * w;
+        //const l2 = lambda * w;
+
+        const fractional_p = config.regDim;
+        const l_p = lambda * std.math.sign(w) * std.math.pow(f64, @abs(w), fractional_p - 1);
 
         const abng = self.weights.grad[i];
-        var g = (abng - wgstat.avg) / wgstat.range * (2 - He);
+        var g = ((abng - wgstat.avg) / wgstat.range) * (2 - He);
         //_ = l2;
-        g = g + l2; // + l2; // + EN;
+        g = g + l_p; // Updating the gradient using the fractional Lp regularization
+        //g = g + l2; // + l2; // + EN;
         //todo, try normalize gradients.
         //weight average, use with lambda?
         //nudge towards it with \/ ?
 
-        const awdiff = wema - w;
+        const awdiff = wema - fw;
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
 
-        const moment = self.weights.moment[i];
-        const mdiff = @sqrt(1.0 / (moment + @abs(@abs(abng) - moment)));
+        //const moment = self.weights.moment[i];
+        //const mdiff = @sqrt(1.0 / (moment + @abs(@abs(abng) - moment)));
         //if (self.weights.moment[i] < 1e-3) {
         //    self.weights.moment[i] = @abs(self.weights.data[i]);
         //    self.weights.data[i] = 0;
         //    std.debug.print("reinit", .{});
         //}
-        _ = .{ mdiff, gdiff };
+        _ = .{gdiff};
         self.weights.data[i] -= lr * g * gdiff; // * mdiff;
         self.weights.EMA[i] += (smoothing * (w - wema));
         self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
     }
     //1.0625
-    //self.weights.data = normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
-    //TODO: test this:
-    //self.biases.grad = normalize(self.biases.grad, 2 - He, 0, 1);
+    self.weights.data = utils.normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
+
+    //TODO: untest this:
+    self.biases.grad = utils.normalize(self.biases.grad, 2 - He, 0, 1);
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];
         const bema = self.biases.EMA[o];
@@ -382,7 +358,7 @@ pub fn applyGradients(self: *Self, lambda: f64) void {
     if (self.maxAvgGrad < wgstat.avgabs) {
         self.maxAvgGrad = wgstat.avgabs;
         //TODO: test this:
-        //@memcpy(self.weights.EMA, self.weights.data);
+        @memcpy(self.weights.EMA, self.weights.data);
         //@memcpy(self.weights.moment, self.weights.grad);
     } else {
         self.maxAvgGrad -= wgstat.avgabs;

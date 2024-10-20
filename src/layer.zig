@@ -106,10 +106,12 @@ pub fn backwards(
     }
 }
 
-pub fn applyGradients(self: *Self, funval: f64) void {
-    _ = funval;
+pub fn applyGradients(self: *Self, config: anytype) void {
+    const lambda = config.lambda;
+    const lr = config.lr;
+
     var i: usize = 0;
     while (i < self.inputSize * self.outputSize) : (i += 1) {
-        self.weights[i] -= 0.01 * self.weight_grads[i];
+        self.weights[i] -= lr * (self.weight_grads[i] - lambda);
     }
 }

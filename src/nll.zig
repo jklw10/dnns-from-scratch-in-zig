@@ -21,8 +21,11 @@ pub fn init(
         .inputSize = inputSize,
     };
 }
+pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, config: anytype) !void {
+    const regDim = config.regDim;
 
-pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, lambda: f64) !void {
+    const lambda = config.lambda;
+
     std.debug.assert(targets.len == self.batchSize);
     std.debug.assert(inputs.len == self.batchSize * self.inputSize);
     var l2_sum: f64 = 0.0;
@@ -31,8 +34,16 @@ pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, lamb
             l2_sum += weight * weight;
         }
     }
-    const l2_term = (lambda / 2.0) * l2_sum;
     //_ = (lambda / 2.0) * l2_sum;
+
+    var lp_sum: f64 = 0.0;
+    for (weights) |row| {
+        for (row) |weight| {
+            lp_sum += std.math.pow(f64, @abs(weight), regDim);
+        }
+    }
+    const lp_term = (lambda / regDim) * lp_sum; // Equivalent to the Lp penalty term
+    //const l2_term = (lambda / 2.0) * l2_sum;
 
     //todo make assert right.
     if (inputs.len != 10 * 100) std.debug.print("should be equal {any} in, expect {any}", .{ inputs.len, 10 * 100 });
@@ -69,7 +80,7 @@ pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, lamb
             self.loss[b] = -1 * @log(std.math.exp(inputs[b * self.inputSize + targets[b]]) / sum);
         }
         for (0..self.inputSize) |i| {
-            self.input_grads[b * self.inputSize + i] = std.math.exp(inputs[b * self.inputSize + i] - maxInput) / sum + l2_term;
+            self.input_grads[b * self.inputSize + i] = std.math.exp(inputs[b * self.inputSize + i] - maxInput) / sum + lp_term;
             if (i == targets[b]) {
                 self.input_grads[b * self.inputSize + i] -= 1;
             }

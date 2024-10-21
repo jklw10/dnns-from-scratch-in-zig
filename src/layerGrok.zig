@@ -302,8 +302,8 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     const He = 2.0 / @as(f64, @floatFromInt(self.inputSize));
     _ = .{ awstat, wstat, He };
     //self.weights.grad = normalize(self.weights.grad, 2 - He, 0, 1);
-
-    for (0..self.inputSize * self.outputSize) |i| {
+    const wsize = self.inputSize * self.outputSize;
+    for (0..wsize) |i| {
         const wema = self.weights.EMA[i];
         const w = self.weights.data[i]; //funnyMulti(self.weights.data[i], wema);
         const fw = funnyMulti(self.weights.data[i], wema);
@@ -313,7 +313,8 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         const fractional_p = config.regDim;
         const l_p = lambda * std.math.sign(w) * std.math.pow(f64, @abs(w), fractional_p - 1);
 
-        const abng = self.weights.grad[i];
+        const abng = self.weights.grad[i]; // (self.weights.grad[i] * 0.9 + self.weights.grad[i - 1 % wsize] * 0.05 + self.weights.grad[i + 1 % wsize] * 0.05);
+
         var g = ((abng - wgstat.avg) / wgstat.range) * (2 - He);
         //_ = l2;
         g = g + l_p; // Updating the gradient using the fractional Lp regularization
@@ -342,7 +343,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     self.weights.data = utils.normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
 
     //TODO: untest this:
-    self.biases.grad = utils.normalize(self.biases.grad, 2 - He, 0, 1);
+    //self.biases.grad = utils.normalize(self.biases.grad, 2 - He, 0, 1);
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];
         const bema = self.biases.EMA[o];
@@ -358,7 +359,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     if (self.maxAvgGrad < wgstat.avgabs) {
         self.maxAvgGrad = wgstat.avgabs;
         //TODO: test this:
-        @memcpy(self.weights.EMA, self.weights.data);
+        //@memcpy(self.weights.EMA, self.weights.data);
         //@memcpy(self.weights.moment, self.weights.grad);
     } else {
         self.maxAvgGrad -= wgstat.avgabs;

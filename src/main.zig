@@ -20,14 +20,14 @@ const scheduleItem = struct {
     hLSize: usize,
 };
 const schedule = [_]scheduleItem{
-    .{ .epochs = 25, .hLSize = 10 },
-    .{ .epochs = 10, .hLSize = 25 },
-    .{ .epochs = 5, .hLSize = 40 },
-    .{ .epochs = 5, .hLSize = 100 },
+    .{ .epochs = 100, .hLSize = 25 },
+    //.{ .epochs = 32, .hLSize = 32 },
+    //.{ .epochs = 64, .hLSize = 64 },
+    //.{ .epochs = 100, .hLSize = 100 },
 };
 
+const resetEpOnRescale = true;
 const continueFrom = 0;
-//todo perlayer configs
 const l2_lambda = 0.0075;
 const m = std.math;
 const regDim: f64 = m.phi;
@@ -40,6 +40,9 @@ const fileSignature = "G25RRRR_G10R.f64";
 const reinit = false;
 
 pub fn main() !void {
+
+    //var asd = try @import("clKernel.zig").init();
+    //try asd.run();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     const allocator = gpa.allocator();
@@ -57,6 +60,7 @@ pub fn main() !void {
 
     const t = std.time.milliTimestamp();
     inline while (itera < schedule.len and multiIter) : (itera += 1) {
+        //std.debug.print("sched {} \n", .{itera});
         var arena = std.heap.ArenaAllocator.init(allocator);
         try runSchedule(itera, dataset, arena.allocator());
         arena.deinit();
@@ -64,7 +68,7 @@ pub fn main() !void {
 
     const ct = std.time.milliTimestamp();
 
-    std.debug.print("time total: {}\n", .{ct - t});
+    std.debug.print("time total: {}ms\n", .{ct - t});
 }
 
 fn initLayers(comptime layers: []const uLayer, config: anytype, dataset: anytype, allocator: std.mem.Allocator) ![layers.len]Layer {
@@ -106,14 +110,14 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
     const cs = schedule[itera].hLSize;
 
     var sum: usize = 0;
-    for (schedule[0..itera]) |elem| {
-        sum += elem.epochs;
+    if (resetEpOnRescale and !first) {
+        for (schedule[0 .. itera - 1]) |elem| {
+            sum += elem.epochs;
+        }
     }
     const pastEp = sum;
-    //std.debug.print("last:{}", .{primes100[primes100.len - 1]});
-    //var asd = try @import("clKernel.zig").init();
-    //try asd.run();
 
+    //std.debug.print("sched {} \n", .{pastEp});
     const file = try std.fs.cwd().createFile(
         "data/Params_" ++ fileSignature,
         .{
@@ -373,6 +377,9 @@ pub fn Neuralnet(
             // Update network
             //utils.stats(previousGradient).avgabs;
             const ep = @as(f64, @floatFromInt(e + config.from));
+            if (i == 0) {
+                //std.debug.print("e: {} ", .{ep});
+            }
 
             const adj1 = 1.0 / (@trunc(ep / 10) + 1.0);
             const adjideal1 = 1.0 / (@trunc((ep) / 10) + 1.0 / @sqrt(0.6));

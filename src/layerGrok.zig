@@ -83,9 +83,9 @@ pub fn readParams(self: *Self, params: anytype) !void {
 }
 pub fn writeParams(self: *Self, params: anytype) !void {
     _ = try params.writeAll(std.mem.sliceAsBytes(self.weights.data));
-    _ = try params.writeAll(std.mem.sliceAsBytes(self.weights.EMA));
-
     _ = try params.writeAll(std.mem.sliceAsBytes(self.biases.data));
+
+    _ = try params.writeAll(std.mem.sliceAsBytes(self.weights.EMA));
     _ = try params.writeAll(std.mem.sliceAsBytes(self.biases.EMA));
 
     _ = try params.writeAll(std.mem.asBytes(&self.normMulti));
@@ -343,7 +343,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     self.weights.data = utils.normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
 
     //TODO: untest this:
-    //self.biases.grad = utils.normalize(self.biases.grad, 2 - He, 0, 1);
+    self.biases.grad = utils.normalize(self.biases.grad, 2 - He, 0, 1);
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];
         const bema = self.biases.EMA[o];
@@ -359,7 +359,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     if (self.maxAvgGrad < wgstat.avgabs) {
         self.maxAvgGrad = wgstat.avgabs;
         //TODO: test this:
-        //@memcpy(self.weights.EMA, self.weights.data);
+        @memcpy(self.weights.EMA, self.weights.data);
         //@memcpy(self.weights.moment, self.weights.grad);
     } else {
         self.maxAvgGrad -= wgstat.avgabs;

@@ -110,7 +110,7 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
     const cs = schedule[itera].hLSize;
 
     var sum: usize = 0;
-    if (resetEpOnRescale and !first) {
+    if (!resetEpOnRescale and !first) {
         for (schedule[0 .. itera - 1]) |elem| {
             sum += elem.epochs;
         }
@@ -135,7 +135,6 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
         .{ .LayerG = 10 }, default,
     };
     comptime var previousLayerSizeF = dataset.inputSize;
-    //TODO: test PGaussian
     const layers = comptime [_]uLayer{
         .{ .LayerG = cs }, default,
         .{ .LayerG = cs }, .Reloid,

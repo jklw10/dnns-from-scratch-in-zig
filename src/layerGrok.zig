@@ -299,8 +299,8 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     self.normMulti -= normlr * (wgstat.range - self.normMulti);
     //self.normBias -= wgstat.avg * normlr;
 
-    const He = 2.0 / @as(f64, @floatFromInt(self.inputSize));
-    _ = .{ awstat, wstat, He };
+    const inputFract = 2.0 / @as(f64, @floatFromInt(self.inputSize));
+    _ = .{ awstat, wstat, inputFract };
     //self.weights.grad = normalize(self.weights.grad, 2 - He, 0, 1);
     const wsize = self.inputSize * self.outputSize;
     for (0..wsize) |i| {
@@ -311,11 +311,10 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         //const l2 = lambda * w;
 
         const fractional_p = config.regDim;
-        const l_p = lambda * std.math.sign(w) * std.math.pow(f64, @abs(w), fractional_p - 1);
+        const l_p = lambda * std.math.sign(fw) * std.math.pow(f64, @abs(fw), fractional_p - 1);
 
-        const abng = self.weights.grad[i]; // (self.weights.grad[i] * 0.9 + self.weights.grad[i - 1 % wsize] * 0.05 + self.weights.grad[i + 1 % wsize] * 0.05);
-
-        var g = ((abng - wgstat.avg) / wgstat.range) * (2 - He);
+        const abng = self.weights.grad[i];
+        var g = ((abng - wgstat.avg) / wgstat.range) * (2 - inputFract);
         //_ = l2;
         g = g + l_p; // Updating the gradient using the fractional Lp regularization
         //g = g + l2; // + l2; // + EN;
@@ -340,10 +339,10 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
     }
     //1.0625
-    self.weights.data = utils.normalize(self.weights.data, 1 + 2 / @as(f64, @floatFromInt(self.inputSize)), 0, 1);
+    self.weights.data = utils.normalize(self.weights.data, 1 + inputFract, 0, 1);
 
     //TODO: untest this:
-    self.biases.grad = utils.normalize(self.biases.grad, 2 - He, 0, 1);
+    self.biases.grad = utils.normalize(self.biases.grad, 2 - inputFract, 0, 1);
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];
         const bema = self.biases.EMA[o];

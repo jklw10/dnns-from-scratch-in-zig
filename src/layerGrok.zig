@@ -81,7 +81,7 @@ pub fn readParams(self: *Self, params: anytype) !void {
     _ = try params.read(std.mem.asBytes(&self.normBias));
     _ = try params.read(std.mem.asBytes(&self.maxAvgGrad));
 }
-pub fn writeParams(self: *Self, params: anytype) !void {
+pub fn writeParams(self: *const Self, params: anytype) !void {
     _ = try params.writeAll(std.mem.sliceAsBytes(self.weights.data));
     _ = try params.writeAll(std.mem.sliceAsBytes(self.biases.data));
 

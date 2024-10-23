@@ -86,10 +86,10 @@ pub fn callIfCan(t: anytype, args: anytype, comptime name: []const u8) void {
     }
 }
 pub fn callIfCanErr(t: anytype, args: anytype, comptime name: []const u8) !void {
-    switch (t.*) {
-        inline else => |*l| {
-            if (@hasDecl(@TypeOf(l.*), name)) {
-                try @field(@TypeOf(l.*), name)(l, args);
+    switch (@TypeOf(t.*)) {
+        inline else => |l| {
+            if (@hasDecl(l, name)) {
+                try @field(l, name)(l, args);
             }
         },
     }
@@ -100,4 +100,17 @@ pub fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
         arr[i] -= alpha * (arr[i] - (((arr[i] - gv.avg) / gv.range * multi) + bias));
     }
     return arr;
+}
+pub fn shuffleWindows(r: anytype, comptime T: type, comptime size: usize, buf: []T) void {
+    const MinInt = usize;
+    if (buf.len < 2) {
+        return;
+    }
+    // `i <= j < max <= maxInt(MinInt)`
+    const max: MinInt = @intCast(buf.len / size);
+    var i: MinInt = 0;
+    while (i < max - 1) : (i += 1) {
+        const j: MinInt = @intCast(r.random().intRangeLessThan(usize, i, max));
+        std.mem.swap([size]T, buf[i..][0..size], buf[j..][0..size]);
+    }
 }

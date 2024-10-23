@@ -1,4 +1,5 @@
 const std = @import("std");
+const lt = @import("layerTypes.zig");
 
 const GiveLoss = true;
 
@@ -21,25 +22,22 @@ pub fn init(
         .inputSize = inputSize,
     };
 }
-pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, weights: [][]f64, config: anytype) !void {
+pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, network: []lt.Layer, config: anytype) !void {
     const regDim = config.regDim;
 
     const lambda = config.lambda;
 
     std.debug.assert(targets.len == self.batchSize);
     std.debug.assert(inputs.len == self.batchSize * self.inputSize);
-    var l2_sum: f64 = 0.0;
-    for (weights) |row| {
-        for (row) |weight| {
-            l2_sum += weight * weight;
-        }
-    }
+
     //_ = (lambda / 2.0) * l2_sum;
 
     var lp_sum: f64 = 0.0;
-    for (weights) |row| {
-        for (row) |weight| {
-            lp_sum += std.math.pow(f64, @abs(weight), regDim);
+    for (network) |layer| {
+        if (@hasField(@TypeOf(layer), "weights")) {
+            for (layer.weights) |weight| {
+                lp_sum += std.math.pow(f64, @abs(weight), regDim);
+            }
         }
     }
     const lp_term = (lambda / regDim) * lp_sum; // Equivalent to the Lp penalty term

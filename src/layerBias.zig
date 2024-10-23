@@ -21,7 +21,7 @@ pub fn readParams(self: *Self, params: anytype) !void {
     _ = try params.read(std.mem.sliceAsBytes(self.weights));
     _ = try params.read(std.mem.sliceAsBytes(self.biases));
 }
-pub fn writeParams(self: *Self, params: anytype) !void {
+pub fn writeParams(self: Self, params: anytype) !void {
     _ = try params.writeAll(std.mem.sliceAsBytes(self.weights));
     _ = try params.writeAll(std.mem.sliceAsBytes(self.biases));
 }

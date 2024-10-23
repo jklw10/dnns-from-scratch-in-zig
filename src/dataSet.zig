@@ -11,9 +11,9 @@ pub fn Data(
         test_images: []inputType,
         test_labels: []outputType,
         trainSize: usize,
-        comptime outputSize: usize = dataDefinition.outputSize,
-        validationSize: usize,
-        comptime inputSize: usize = dataDefinition.inputSize,
+        pub const validationSize: usize = dataDefinition.validationSize;
+        pub const outputSize: usize = dataDefinition.outputSize;
+        pub const inputSize: usize = dataDefinition.inputSize;
         const Self = @This();
 
         pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
@@ -64,8 +64,6 @@ pub fn Data(
                 .test_images = test_images,
                 .test_labels = test_labels,
                 .trainSize = dataDefinition.trainSize,
-                .outputSize = dataDefinition.outputSize,
-                .validationSize = dataDefinition.validationSize,
             };
         }
 

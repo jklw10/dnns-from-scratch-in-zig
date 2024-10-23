@@ -10,6 +10,8 @@ const pyramid = @import("pyramid.zig");
 const gaussian = @import("gaussian.zig");
 const pGaussian = @import("parGaussian.zig");
 
+const lt = @import("layerTypes.zig");
+
 const utils = @import("utils.zig");
 const std = @import("std");
 
@@ -58,11 +60,11 @@ pub fn main() !void {
         utils.graphFunc(gaussian);
     }
 
-    comptime var itera: usize = continueFrom;
-
     std.debug.print("Training... \n", .{});
 
     const t = std.time.milliTimestamp();
+
+    comptime var itera: usize = continueFrom;
     inline while (itera < schedule.len and multiIter) : (itera += 1) {
         //std.debug.print("sched {} \n", .{itera});
         var arena = std.heap.ArenaAllocator.init(allocator);
@@ -75,30 +77,228 @@ pub fn main() !void {
     std.debug.print("time total: {}ms\n", .{ct - t});
 }
 
-fn initLayers(comptime layers: []const uLayer, config: anytype, dataset: anytype, allocator: std.mem.Allocator) ![layers.len]Layer {
-    comptime var previousLayerSize = dataset.inputSize;
-    var storage: [layers.len]Layer = undefined;
-    inline for (layers, 0..) |lay, i| {
-        storage[i] = try layerInit(
-            allocator,
-            lay,
-            .{
-                .batchSize = config.batchSize,
-                .inputSize = previousLayerSize,
-            },
-        );
-        if (config.deinitbkw) {
-            switch (storage[i]) {
-                inline else => |*l| l.deinitBackwards(allocator),
+fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
+    return struct {
+        validationStorage: []lt.Layer,
+        storage: []lt.Layer,
+        loss: nll,
+
+        comptime definition: []const lt.uLayer = definition,
+        comptime datatype: type = datatype,
+        const Self = @This();
+        fn init(config: anytype, allocator: std.mem.Allocator) !Self {
+            comptime var previousLayerSize = datatype.inputSize;
+            var storage: [definition.len]lt.Layer = undefined;
+            var validationStorage: [definition.len]lt.Layer = undefined;
+            inline for (definition, 0..) |lay, i| {
+                storage[i] = try lay.layerInit(
+                    allocator,
+                    .{
+                        .batchSize = config.batchSize,
+                        .inputSize = previousLayerSize,
+                    },
+                );
+                validationStorage[i] = try lay.layerInit(
+                    allocator,
+                    .{
+                        .batchSize = datatype.validationSize,
+                        .inputSize = previousLayerSize,
+                    },
+                );
+                switch (validationStorage[i]) {
+                    inline else => |*l| l.deinitBackwards(allocator),
+                }
+                switch (lay) {
+                    .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
+                    .PGaussian => previousLayerSize = previousLayerSize - 3,
+                    else => {},
+                }
+            }
+            return .{
+                .storage = &storage,
+                .validationStorage = &validationStorage,
+                .loss = try nll.init(datatype.outputSize, config.batchSize, allocator),
+            };
+        }
+
+        fn fromFile(self: *Self, reader: anytype) !void {
+            var previousLayerSize = datatype.inputSize;
+            for (definition, 0..) |lay, i| {
+                try utils.callIfCanErr(&self.storage[i], reader, "readParams");
+                switch (lay) {
+                    .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
+                    .PGaussian => previousLayerSize -= 3,
+                    else => {},
+                }
             }
         }
-        switch (lay) {
-            .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
-            .PGaussian => previousLayerSize = previousLayerSize - 3,
-            else => {},
+
+        fn toFile(self: Self) !void {
+            const filew = try std.fs.cwd().createFile(
+                "data/Params_" ++ fileSignature,
+                .{
+                    .read = true,
+                    .truncate = true,
+                },
+            );
+            defer filew.close();
+            for (self.storage) |l| {
+                //l.writeParams(filew);
+                try utils.callIfCanErr(&l, filew, "writeParams");
+            }
         }
-    }
-    return storage;
+        fn reinit(self: *Self) !void {
+            for (self.storage) |lay| {
+                try utils.callIfCanErr(&lay, 1.0, "reinit");
+            }
+        }
+        fn rescale(self: Self, other: anytype) !void {
+            for (other.storage, 0..) |_, i| {
+                utils.callIfTypeMatch(&self.storage[i], other, "rescale");
+            }
+        }
+        fn Run(
+            self: *Self,
+            dataset: anytype,
+            config: anytype,
+        ) !void {
+            const batchSize = config.batchSize;
+            var storage = self.storage;
+            const validationStorage = self.validationStorage;
+
+            const t = std.time.milliTimestamp();
+
+            var r = std.Random.DefaultPrng.init(245);
+
+            // Do training
+            for (0..config.epochs) |e| {
+                utils.shuffleWindows(&r, f64, datatype.inputSize, dataset.train_images);
+                // Do training
+                for (0..dataset.trainSize / batchSize) |i| {
+
+                    // Prep inputs and targets
+                    const inputs = dataset.train_images[i * datatype.inputSize * batchSize .. (i + 1) * datatype.inputSize * batchSize];
+                    const targets = dataset.train_labels[i * batchSize .. (i + 1) * batchSize];
+
+                    // Go forward and get loss
+
+                    var previousLayerOut = inputs;
+                    for (storage) |*current| {
+                        switch (current.*) {
+                            inline else => |*currentLayer| {
+                                currentLayer.forward(previousLayerOut);
+                                previousLayerOut = currentLayer.fwd_out;
+                            },
+                        }
+                    }
+                    //if (i % (60000 / batchSize) == 1) {
+                    //    std.debug.print("{any}\n", .{
+                    //        averageArray(loss.loss),
+                    //    });
+                    //}
+
+                    self.loss.getLoss(
+                        previousLayerOut,
+                        targets,
+                        self.storage,
+                        .{ .lambda = l2_lambda, .regDim = regDim },
+                    ) catch |err| {
+                        //std.debug.print("batch number: {}, time delta: {}ms\n", .{ i * batchSize, std.time.milliTimestamp() - t });
+                        std.debug.print("loss err: {any}\n", .{
+                            utils.stats(self.loss.loss).avg,
+                        });
+                        return err;
+                    };
+                    var previousGradient = self.loss.input_grads;
+                    for (0..storage.len) |ni| {
+                        const index = storage.len - ni - 1;
+                        switch (storage[index]) {
+                            inline else => |*currentActivation| {
+                                currentActivation.backwards(previousGradient);
+                                previousGradient = currentActivation.bkw_out;
+                            },
+                        }
+                    }
+                    //use last gradient as a scalar for an optimizer?
+                    // Update network
+                    //utils.stats(previousGradient).avgabs;
+                    const ep = @as(f64, @floatFromInt(e + config.from));
+                    if (i == 0) {
+                        //std.debug.print("e: {} ", .{ep});
+                    }
+
+                    const adj1 = 1.0 / (@trunc(ep / 10) + 1.0);
+                    const adjideal1 = 1.0 / (@trunc((ep) / 10) + 1.0 / @sqrt(0.6));
+                    const adj2 = 1.0 / (ep / 10.0 + 1.0);
+                    const adjideal2 = 1.0 / (ep / 10.0 + 1.0 / @sqrt(0.6));
+                    //const adj3 = 1 / (@as(f64, @floatFromInt(e)) / std.math.phi + 1);
+                    // std.debug.print("time total: {}ms\n", .{std.time.milliTimestamp() - t});
+                    _ = .{ e, adj2, adj1, adjideal1, adjideal2 };
+                    //std.debug.print("{}", .{1 / utils.primes100[e / 10]});
+                    //const primeadj = 1 / utils.primes100[e / 10];
+
+                    const lr = 0.01 * adj2 * adj2;
+                    for (storage) |*current| {
+                        current.applyGradients(.{ .lambda = l2_lambda, .lr = lr, .regDim = regDim });
+                    }
+                }
+
+                // Do validation
+                var correct: f64 = 0;
+                const inputs = dataset.test_images;
+
+                for (validationStorage, 0..) |*current, cur| {
+                    switch (current.*) {
+                        .Layer => |*currentLayer| {
+                            currentLayer.copyParams(storage[cur].Layer);
+                        },
+                        .LayerB => |*currentLayer| {
+                            currentLayer.copyParams(storage[cur].LayerB);
+                        },
+                        .LayerG => |*currentLayer| {
+                            currentLayer.copyParams(storage[cur].LayerG);
+                        },
+                        else => {},
+                    }
+                }
+                var previousLayerOut = inputs;
+                for (validationStorage) |*current| {
+                    switch (current.*) {
+                        inline else => |*currentLayer| {
+                            currentLayer.forward(previousLayerOut);
+                            previousLayerOut = currentLayer.fwd_out;
+                        },
+                    }
+                }
+
+                for (0..datatype.validationSize) |b| {
+                    var max_guess: f64 = std.math.floatMin(f64);
+                    var guess_index: usize = 0;
+                    for (previousLayerOut[b * datatype.outputSize .. (b + 1) * datatype.outputSize], 0..) |o, oi| {
+                        if (o > max_guess) {
+                            max_guess = o;
+                            guess_index = oi;
+                        }
+                    }
+                    if (guess_index == dataset.test_labels[b]) {
+                        correct += 1;
+                    }
+                }
+                correct = correct / @as(f64, @floatFromInt(datatype.validationSize));
+                if (timer) {
+                    std.debug.print("time epoch: {}ms\n", .{std.time.milliTimestamp() - t});
+                }
+
+                std.debug.print("{}", .{correct});
+                // std.debug.print(", l:{}", .{stats(loss.loss).avg});
+                std.debug.print("\n", .{});
+            }
+            if (timer) {
+                const ct = std.time.milliTimestamp();
+                std.debug.print(" time schedule: {}ms\n", .{ct - t});
+            }
+        }
+    };
 }
 
 fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Allocator) !void {
@@ -122,24 +322,17 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
     const pastEp = sum;
 
     //std.debug.print("sched {} \n", .{pastEp});
-    const file = try std.fs.cwd().createFile(
-        "data/Params_" ++ fileSignature,
-        .{
-            .read = true,
-            .truncate = false,
-        },
-    );
-    const default = uLayer.Relu;
 
-    const fileL = [_]uLayer{
+    const default = lt.uLayer.Relu;
+
+    const fileL = [_]lt.uLayer{
         .{ .LayerG = ps }, default,
         .{ .LayerG = ps }, .Reloid,
         .{ .LayerG = ps }, .Reloid,
         .{ .LayerG = ps }, .Reloid,
         .{ .LayerG = 10 }, default,
     };
-    comptime var previousLayerSizeF = dataset.inputSize;
-    const layers = comptime [_]uLayer{
+    const layers = comptime [_]lt.uLayer{
         .{ .LayerG = cs }, default,
         .{ .LayerG = cs }, .Reloid,
         .{ .LayerG = cs }, .Reloid,
@@ -147,315 +340,42 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
         .{ .LayerG = 10 }, default,
     };
 
-    var storage = try initLayers(
-        &layers,
-        .{ .deinitbkw = false, .batchSize = batchSize },
-        dataset,
-        allocator,
-    );
-    var validationStorage = try initLayers(
-        &layers,
-        .{ .deinitbkw = true, .batchSize = dataset.validationSize },
-        dataset,
-        allocator,
-    );
+    const nntype = LayerStorage(&layers, @TypeOf(dataset));
 
-    var reader = std.io.bufferedReader(file.reader());
+    var neuralNet = try nntype.init(
+        .{ .batchSize = batchSize },
+        allocator,
+    );
 
     if (readfile) {
-        inline for (fileL, 0..) |lay, i| {
-            if (resize) {
-                var other = try layerInit(
-                    allocator,
-                    lay,
-                    .{
-                        .batchSize = batchSize,
-                        .inputSize = previousLayerSizeF,
-                    },
-                );
-                try utils.callIfCanErr(&other, &reader, "readParams");
-                utils.callIfTypeMatch(&storage[i], other, "rescale");
-                switch (lay) {
-                    .Layer, .LayerB, .LayerG => |size| previousLayerSizeF = size,
-                    .PGaussian => previousLayerSizeF = previousLayerSizeF - 3,
-                    else => {},
-                }
-            } else {
-                try utils.callIfCanErr(&storage[i], &reader, "readParams");
-            }
-            if (reinit) {
-                try utils.callIfCanErr(&storage[i], 1.0, "reinit");
-            }
-        }
-    }
-
-    file.close();
-
-    const k = try Neuralnet(
-        &validationStorage,
-        &storage,
-        dataset,
-        .{ .epochs = epochs, .batchSize = batchSize, .from = pastEp },
-        allocator,
-    );
-
-    if (writeFile) {
-        const filew = try std.fs.cwd().createFile(
+        const file = try std.fs.cwd().createFile(
             "data/Params_" ++ fileSignature,
             .{
                 .read = true,
-                .truncate = true,
+                .truncate = false,
             },
         );
-        defer filew.close();
-        for (0..k.len) |l| {
-            try utils.callIfCanErr(&k[l], filew, "writeParams");
-        }
-    }
-}
-
-const uLayer = union(enum) {
-    LayerG: usize,
-    LayerB: usize,
-    Layer: usize,
-    Relu: void,
-    Pyramid: void,
-    Gaussian: void,
-    PGaussian: void,
-    Reloid: void,
-};
-const Layer = union(enum) {
-    LayerG: layerG,
-    LayerB: layerB,
-    Layer: layer,
-
-    Relu: relu,
-    Pyramid: pyramid,
-    Gaussian: gaussian,
-    PGaussian: pGaussian,
-    Reloid: reloid,
-
-    fn forward(this: *@This(), args: anytype) void {
-        switch (this.*) {
-            inline else => |*l| l.forward(args),
-        }
-    }
-    fn backwards(this: *@This(), args: anytype) void {
-        switch (this.*) {
-            inline else => |*l| l.backwards(args),
-        }
-    }
-    fn applyGradients(this: *@This(), args: anytype) void {
-        utils.callIfCan(this, args, "applyGradients");
-    }
-};
-
-fn layerInit(alloc: std.mem.Allocator, comptime desc: uLayer, lcommon: anytype) !Layer {
-    //comptime var lsize = 0;
-
-    const lt = switch (desc) {
-        .Layer => layer,
-        .LayerB => layerB,
-        .LayerG => layerG,
-        .Reloid => reloid,
-        .Relu => relu,
-        .Gaussian => gaussian,
-        .PGaussian => pGaussian,
-        .Pyramid => pyramid,
-    };
-    const lconf = switch (desc) {
-        inline else => |s| s,
-    };
-    const ltt = switch (lt) {
-        inline else => |*l| try l.init(
-            alloc,
-            lcommon,
-            lconf,
-        ),
-    };
-
-    const layerType = switch (desc) {
-        .Layer => Layer{ .Layer = ltt },
-        .LayerB => Layer{ .LayerB = ltt },
-        .LayerG => Layer{ .LayerG = ltt },
-        .Relu => Layer{ .Relu = ltt },
-        .Reloid => Layer{ .Reloid = ltt },
-        .Pyramid => Layer{ .Pyramid = ltt },
-        .Gaussian => Layer{ .Gaussian = ltt },
-        .PGaussian => Layer{ .PGaussian = ltt },
-    };
-
-    return layerType;
-}
-
-pub fn shuffleWindows(r: anytype, comptime T: type, comptime size: usize, buf: []T) void {
-    const MinInt = usize;
-    if (buf.len < 2) {
-        return;
-    }
-    // `i <= j < max <= maxInt(MinInt)`
-    const max: MinInt = @intCast(buf.len / size);
-    var i: MinInt = 0;
-    while (i < max - 1) : (i += 1) {
-        const j: MinInt = @intCast(r.random().intRangeLessThan(usize, i, max));
-        std.mem.swap([size]T, buf[i..][0..size], buf[j..][0..size]);
-    }
-}
-
-pub fn Neuralnet(
-    validationStorage: []Layer,
-    storage: []Layer,
-    dataset: anytype,
-    config: anytype,
-    allocator: std.mem.Allocator,
-) ![]Layer {
-    const batchSize = config.batchSize;
-    var weights = std.ArrayList([]f64).init(allocator);
-    var loss = try nll.init(dataset.outputSize, batchSize, allocator);
-
-    for (storage) |*current| {
-        switch (current.*) {
-            inline else => |*currentLayer| {
-                if (@hasField(@TypeOf(current.*), "weights")) {
-                    try weights.append(currentLayer.weights);
-                }
-            },
+        var reader = std.io.bufferedReader(file.reader());
+        defer file.close();
+        if (resize) {
+            var other = try LayerStorage(&fileL, @TypeOf(dataset)).init(
+                .{ .deinitbkw = false, .batchSize = batchSize },
+                allocator,
+            );
+            try other.fromFile(&reader);
+            try neuralNet.rescale(other);
+        } else {
+            try neuralNet.fromFile(&reader);
         }
     }
 
-    const t = std.time.milliTimestamp();
-
-    var r = std.Random.DefaultPrng.init(245);
-
-    // Do training
-    for (0..config.epochs) |e| {
-        shuffleWindows(&r, f64, dataset.inputSize, dataset.train_images);
-        // Do training
-        for (0..dataset.trainSize / batchSize) |i| {
-
-            // Prep inputs and targets
-            const inputs = dataset.train_images[i * dataset.inputSize * batchSize .. (i + 1) * dataset.inputSize * batchSize];
-            const targets = dataset.train_labels[i * batchSize .. (i + 1) * batchSize];
-
-            // Go forward and get loss
-
-            var previousLayerOut = inputs;
-            for (storage) |*current| {
-                switch (current.*) {
-                    inline else => |*currentLayer| {
-                        currentLayer.forward(previousLayerOut);
-                        previousLayerOut = currentLayer.fwd_out;
-                    },
-                }
-            }
-            //if (i % (60000 / batchSize) == 1) {
-            //    std.debug.print("{any}\n", .{
-            //        averageArray(loss.loss),
-            //    });
-            //}
-
-            loss.getLoss(
-                previousLayerOut,
-                targets,
-                weights.items,
-                .{ .lambda = l2_lambda, .regDim = regDim },
-            ) catch |err| {
-                //std.debug.print("batch number: {}, time delta: {}ms\n", .{ i * batchSize, std.time.milliTimestamp() - t });
-                std.debug.print("loss err: {any}\n", .{
-                    utils.stats(loss.loss).avg,
-                });
-                return err;
-            };
-            var previousGradient = loss.input_grads;
-            for (0..storage.len) |ni| {
-                const index = storage.len - ni - 1;
-                switch (storage[index]) {
-                    inline else => |*currentActivation| {
-                        currentActivation.backwards(previousGradient);
-                        previousGradient = currentActivation.bkw_out;
-                    },
-                }
-            }
-            //use last gradient as a scalar for an optimizer?
-            // Update network
-            //utils.stats(previousGradient).avgabs;
-            const ep = @as(f64, @floatFromInt(e + config.from));
-            if (i == 0) {
-                //std.debug.print("e: {} ", .{ep});
-            }
-
-            const adj1 = 1.0 / (@trunc(ep / 10) + 1.0);
-            const adjideal1 = 1.0 / (@trunc((ep) / 10) + 1.0 / @sqrt(0.6));
-            const adj2 = 1.0 / (ep / 10.0 + 1.0);
-            const adjideal2 = 1.0 / (ep / 10.0 + 1.0 / @sqrt(0.6));
-            //const adj3 = 1 / (@as(f64, @floatFromInt(e)) / std.math.phi + 1);
-            // std.debug.print("time total: {}ms\n", .{std.time.milliTimestamp() - t});
-            _ = .{ e, adj2, adj1, adjideal1, adjideal2 };
-            //std.debug.print("{}", .{1 / utils.primes100[e / 10]});
-            //const primeadj = 1 / utils.primes100[e / 10];
-
-            const lr = 0.01 * adj2 * adj2;
-            for (storage) |*current| {
-                current.applyGradients(.{ .lambda = l2_lambda, .lr = lr, .regDim = regDim });
-            }
-        }
-
-        // Do validation
-        var correct: f64 = 0;
-        const inputs = dataset.test_images;
-
-        for (validationStorage, 0..) |*current, cur| {
-            switch (current.*) {
-                .Layer => |*currentLayer| {
-                    currentLayer.copyParams(storage[cur].Layer);
-                },
-                .LayerB => |*currentLayer| {
-                    currentLayer.copyParams(storage[cur].LayerB);
-                },
-                .LayerG => |*currentLayer| {
-                    currentLayer.copyParams(storage[cur].LayerG);
-                },
-                else => {},
-            }
-        }
-        var previousLayerOut = inputs;
-        for (validationStorage) |*current| {
-            switch (current.*) {
-                inline else => |*currentLayer| {
-                    currentLayer.forward(previousLayerOut);
-                    previousLayerOut = currentLayer.fwd_out;
-                },
-            }
-        }
-
-        for (0..dataset.validationSize) |b| {
-            var max_guess: f64 = std.math.floatMin(f64);
-            var guess_index: usize = 0;
-            for (previousLayerOut[b * dataset.outputSize .. (b + 1) * dataset.outputSize], 0..) |o, oi| {
-                if (o > max_guess) {
-                    max_guess = o;
-                    guess_index = oi;
-                }
-            }
-            if (guess_index == dataset.test_labels[b]) {
-                correct += 1;
-            }
-        }
-        correct = correct / @as(f64, @floatFromInt(dataset.validationSize));
-        if (timer) {
-            std.debug.print("time epoch: {}ms\n", .{std.time.milliTimestamp() - t});
-        }
-
-        std.debug.print("{}", .{correct});
-        // std.debug.print(", l:{}", .{stats(loss.loss).avg});
-        std.debug.print("\n", .{});
+    try neuralNet.Run(
+        dataset,
+        .{ .epochs = epochs, .batchSize = batchSize, .from = pastEp },
+    );
+    if (writeFile) {
+        try neuralNet.toFile();
     }
-    if (timer) {
-        const ct = std.time.milliTimestamp();
-        std.debug.print(" time schedule: {}ms\n", .{ct - t});
-    }
-
-    return storage;
 }
 
 test "Forward once" {

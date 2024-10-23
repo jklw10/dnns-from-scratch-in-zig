@@ -53,7 +53,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    const dataset = try dataSet.mnist.dtype.readData(allocator);
+    const dataset = try dataSet.dummy.dtype.readData(allocator);
     defer dataset.deinit(allocator);
 
     if (graphfuncs) {

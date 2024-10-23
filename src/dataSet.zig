@@ -188,3 +188,39 @@ pub const cifar = struct {
         }
     };
 };
+pub const dummy = struct {
+    pub const train_images_path: []const u8 = "dummy.txt";
+    pub const train_labels_path: []const u8 = "dummy.txt";
+    pub const test_images_path: []const u8 = "dummy.txt";
+    pub const test_labels_path: []const u8 = "dummy.txt";
+
+    pub const inputSize = 1;
+    pub const outputSize = 1;
+    pub const trainSize = 1;
+    pub const validationSize = 1;
+
+    pub const dtype = Data(f64, u8, @This());
+
+    pub const ImageFormat = struct {
+        const size = 1;
+        const skipBytes = 0;
+        const firstItem = false;
+        const stride = 0;
+        pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
+            _ = input;
+            _ = inputCount;
+            @memset(destination, 0);
+        }
+    };
+    pub const LabelFormat = struct {
+        const size = 1;
+        const skipBytes = 0;
+        const firstItem = false;
+        const stride = 0;
+        pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
+            _ = input;
+            _ = inputCount;
+            @memset(destination, 0);
+        }
+    };
+};

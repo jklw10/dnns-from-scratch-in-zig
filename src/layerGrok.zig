@@ -322,7 +322,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         //weight average, use with lambda?
         //nudge towards it with \/ ?
 
-        const awdiff = wema - fw;
+        const awdiff = wema - w;
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
 

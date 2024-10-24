@@ -308,7 +308,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         //const l2 = lambda * w;
 
         const fractional_p = config.regDim;
-        const l_p = lambda * std.math.sign(fw) * std.math.pow(f64, @abs(fw), fractional_p - 1);
+        const l_p = lambda * std.math.sign(w) * std.math.pow(f64, @abs(w), fractional_p - 1);
 
         const abng = self.weights.grad[i];
         var g = ((abng - wgstat.avg) / wgstat.range) * (2 - inputFract);
@@ -319,7 +319,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         //weight average, use with lambda?
         //nudge towards it with \/ ?
 
-        const awdiff = wema - w;
+        const awdiff = wema - fw;
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
 

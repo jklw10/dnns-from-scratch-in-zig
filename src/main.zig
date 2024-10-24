@@ -22,17 +22,17 @@ const scheduleItem = struct {
     hLSize: usize,
 };
 const schedule = [_]scheduleItem{
-    //.{ .epochs = 100, .hLSize = 25 },
-    .{ .epochs = 5, .hLSize = 25 },
-    .{ .epochs = 5, .hLSize = 50 },
-    .{ .epochs = 20, .hLSize = 100 },
+    .{ .epochs = 100, .hLSize = 25 },
+    //.{ .epochs = 5, .hLSize = 25 },
+    //.{ .epochs = 5, .hLSize = 50 },
+    //.{ .epochs = 20, .hLSize = 100 },
     //.{ .epochs = 25, .hLSize = 25 },
     //.{ .epochs = 32, .hLSize = 32 },
     //.{ .epochs = 64, .hLSize = 64 },
     //.{ .epochs = 100, .hLSize = 100 },
 };
 
-const resetEpOnRescale = false;
+const resetEpOnRescale = true;
 const continueFrom = 0;
 const l2_lambda = 0.0075;
 const m = std.math;

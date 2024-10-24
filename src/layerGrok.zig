@@ -217,13 +217,10 @@ pub fn forward(
     //        }
     //    }
     //}
-    var b: usize = 0;
-    while (b < self.batchSize) : (b += 1) {
-        var o: usize = 0;
-        while (o < self.outputSize) : (o += 1) {
+    for (0..self.batchSize) |b| {
+        for (0..self.outputSize) |o| {
             var sum: f64 = 0;
-            var i: usize = 0;
-            while (i < self.inputSize) : (i += 1) {
+            for (0..self.inputSize) |i| {
                 const d = 1.0; // if (usedrop) 1.0 else @as(f64, @floatFromInt(@intFromBool(self.dropOut[self.outputSize * i + o]))) * self.nodrop;
                 const w = funnyMulti(self.weights.data[i + self.inputSize * o], self.weights.EMA[i + self.inputSize * o]);
                 const in = inputs[b * self.inputSize + i];

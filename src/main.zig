@@ -53,7 +53,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    const dataset = try dataSet.dummy.dtype.readData(allocator);
+    const dataset = try dataSet.mnist.dtype.readData(allocator);
     defer dataset.deinit(allocator);
 
     if (graphfuncs) {
@@ -63,9 +63,9 @@ pub fn main() !void {
     std.debug.print("Training... \n", .{});
 
     const t = std.time.milliTimestamp();
+    //try runSchedule(1, dataset, allocator);
 
-    comptime var itera: usize = continueFrom;
-    inline while (itera < schedule.len and multiIter) : (itera += 1) {
+    inline for (0..schedule.len) |itera| {
         //std.debug.print("sched {} \n", .{itera});
         var arena = std.heap.ArenaAllocator.init(allocator);
         try runSchedule(itera, dataset, arena.allocator());
@@ -77,6 +77,82 @@ pub fn main() !void {
     std.debug.print("time total: {}ms\n", .{ct - t});
 }
 
+fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Allocator) !void {
+    const first = itera == 0;
+
+    const resize = !first;
+    const readfile = !first;
+    const writeFile = true;
+
+    const batchSize = 100;
+    const epochs = schedule[itera].epochs;
+    const ps = if (!first) schedule[itera - 1].hLSize else 0;
+    const cs = schedule[itera].hLSize;
+
+    var sum: usize = 0;
+    if (!resetEpOnRescale and !first) {
+        for (schedule[0 .. itera - 1]) |elem| {
+            sum += elem.epochs;
+        }
+    }
+    const pastEp = sum;
+
+    //std.debug.print("sched {} \n", .{pastEp});
+
+    const default = lt.uLayer.Relu;
+
+    const fileL = [_]lt.uLayer{
+        .{ .LayerG = ps }, default,
+        .{ .LayerG = ps }, .Reloid,
+        .{ .LayerG = ps }, .Reloid,
+        .{ .LayerG = ps }, .Reloid,
+        .{ .LayerG = 10 }, default,
+    };
+    const layers = comptime [_]lt.uLayer{
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = 10 }, default,
+    };
+
+    const nntype = LayerStorage(&layers, @TypeOf(dataset));
+
+    var neuralNet = try nntype.init(
+        .{ .batchSize = batchSize },
+        allocator,
+    );
+
+    if (readfile) {
+        const file = try std.fs.cwd().createFile(
+            "data/Params_" ++ fileSignature,
+            .{
+                .read = true,
+                .truncate = false,
+            },
+        );
+        var reader = std.io.bufferedReader(file.reader());
+        defer file.close();
+        if (resize) {
+            var other = try LayerStorage(&fileL, @TypeOf(dataset)).init(
+                .{ .deinitbkw = false, .batchSize = batchSize },
+                allocator,
+            );
+            try other.fromFile(&reader);
+            try neuralNet.rescale(other);
+        } else {
+            try neuralNet.fromFile(&reader);
+        }
+    }
+
+    try neuralNet.Run(
+        dataset,
+        .{ .epochs = epochs, .batchSize = batchSize, .from = pastEp },
+    );
+    if (writeFile) {
+        try neuralNet.toFile();
+    }
+}
 fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
     return struct {
         validationStorage: []lt.Layer,
@@ -88,8 +164,8 @@ fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
         const Self = @This();
         fn init(config: anytype, allocator: std.mem.Allocator) !Self {
             comptime var previousLayerSize = datatype.inputSize;
-            var storage: [definition.len]lt.Layer = undefined;
-            var validationStorage: [definition.len]lt.Layer = undefined;
+            var storage: []lt.Layer = try allocator.alloc(lt.Layer, definition.len);
+            var validationStorage: []lt.Layer = try allocator.alloc(lt.Layer, definition.len);
             inline for (definition, 0..) |lay, i| {
                 storage[i] = try lay.layerInit(
                     allocator,
@@ -115,21 +191,15 @@ fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
                 }
             }
             return .{
-                .storage = &storage,
-                .validationStorage = &validationStorage,
+                .storage = storage,
+                .validationStorage = validationStorage,
                 .loss = try nll.init(datatype.outputSize, config.batchSize, allocator),
             };
         }
 
         fn fromFile(self: *Self, reader: anytype) !void {
-            var previousLayerSize = datatype.inputSize;
-            for (definition, 0..) |lay, i| {
-                try utils.callIfCanErr(&self.storage[i], reader, "readParams");
-                switch (lay) {
-                    .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
-                    .PGaussian => previousLayerSize -= 3,
-                    else => {},
-                }
+            for (self.storage) |*lay| {
+                try utils.callIfCanErr(lay, reader, "readParams");
             }
         }
 
@@ -186,6 +256,8 @@ fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
                     for (storage) |*current| {
                         switch (current.*) {
                             inline else => |*currentLayer| {
+                                //if (i == 0) std.debug.print("size {any}", .{previousLayerOut.len});
+
                                 currentLayer.forward(previousLayerOut);
                                 previousLayerOut = currentLayer.fwd_out;
                             },
@@ -265,6 +337,7 @@ fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
                 for (validationStorage) |*current| {
                     switch (current.*) {
                         inline else => |*currentLayer| {
+                            //std.debug.print("size {any}", .{previousLayerOut.len});
                             currentLayer.forward(previousLayerOut);
                             previousLayerOut = currentLayer.fwd_out;
                         },
@@ -299,83 +372,6 @@ fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
             }
         }
     };
-}
-
-fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Allocator) !void {
-    const first = itera == 0;
-
-    const resize = !first;
-    const readfile = !first;
-    const writeFile = true;
-
-    const batchSize = 100;
-    const epochs = schedule[itera].epochs;
-    const ps = if (!first) schedule[itera - 1].hLSize else 0;
-    const cs = schedule[itera].hLSize;
-
-    var sum: usize = 0;
-    if (!resetEpOnRescale and !first) {
-        for (schedule[0 .. itera - 1]) |elem| {
-            sum += elem.epochs;
-        }
-    }
-    const pastEp = sum;
-
-    //std.debug.print("sched {} \n", .{pastEp});
-
-    const default = lt.uLayer.Relu;
-
-    const fileL = [_]lt.uLayer{
-        .{ .LayerG = ps }, default,
-        .{ .LayerG = ps }, .Reloid,
-        .{ .LayerG = ps }, .Reloid,
-        .{ .LayerG = ps }, .Reloid,
-        .{ .LayerG = 10 }, default,
-    };
-    const layers = comptime [_]lt.uLayer{
-        .{ .LayerG = cs }, default,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = 10 }, default,
-    };
-
-    const nntype = LayerStorage(&layers, @TypeOf(dataset));
-
-    var neuralNet = try nntype.init(
-        .{ .batchSize = batchSize },
-        allocator,
-    );
-
-    if (readfile) {
-        const file = try std.fs.cwd().createFile(
-            "data/Params_" ++ fileSignature,
-            .{
-                .read = true,
-                .truncate = false,
-            },
-        );
-        var reader = std.io.bufferedReader(file.reader());
-        defer file.close();
-        if (resize) {
-            var other = try LayerStorage(&fileL, @TypeOf(dataset)).init(
-                .{ .deinitbkw = false, .batchSize = batchSize },
-                allocator,
-            );
-            try other.fromFile(&reader);
-            try neuralNet.rescale(other);
-        } else {
-            try neuralNet.fromFile(&reader);
-        }
-    }
-
-    try neuralNet.Run(
-        dataset,
-        .{ .epochs = epochs, .batchSize = batchSize, .from = pastEp },
-    );
-    if (writeFile) {
-        try neuralNet.toFile();
-    }
 }
 
 test "Forward once" {

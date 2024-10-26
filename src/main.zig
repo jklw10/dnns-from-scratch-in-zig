@@ -242,7 +242,15 @@ fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
 
             // Do training
             for (0..config.epochs) |e| {
-                utils.shuffleWindows(&r, f64, datatype.inputSize, dataset.train_images);
+                utils.shufflePairedWindows(
+                    &r,
+                    f64,
+                    datatype.inputSize,
+                    dataset.train_images,
+                    u8,
+                    1,
+                    dataset.train_labels,
+                );
                 // Do training
                 for (0..dataset.trainSize / batchSize) |i| {
 

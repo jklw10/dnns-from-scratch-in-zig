@@ -101,7 +101,15 @@ pub fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
     }
     return arr;
 }
-pub fn shuffleWindows(r: anytype, comptime T: type, comptime size: usize, buf: []T) void {
+pub fn shufflePairedWindows(
+    r: anytype,
+    comptime T: type,
+    comptime size: usize,
+    buf: []T,
+    comptime T2: type,
+    comptime size2: usize,
+    buf2: []T2,
+) void {
     const MinInt = usize;
     if (buf.len < 2) {
         return;
@@ -111,6 +119,8 @@ pub fn shuffleWindows(r: anytype, comptime T: type, comptime size: usize, buf: [
     var i: MinInt = 0;
     while (i < max - 1) : (i += 1) {
         const j: MinInt = @intCast(r.random().intRangeLessThan(usize, i, max));
-        std.mem.swap([size]T, buf[i..][0..size], buf[j..][0..size]);
+        std.mem.swap([size]T, buf[i * size ..][0..size], buf[j * size ..][0..size]);
+
+        std.mem.swap([size2]T2, buf2[i * size2 ..][0..size2], buf2[j * size2 ..][0..size2]);
     }
 }

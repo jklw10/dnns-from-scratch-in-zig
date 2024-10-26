@@ -26,8 +26,6 @@ const Param = struct {
     }
 };
 
-dropOut: []bool,
-
 weights: Param,
 biases: Param,
 
@@ -43,14 +41,7 @@ batchSize: usize,
 inputSize: usize,
 outputSize: usize,
 
-nodrop: f64 = 1.0,
-rounds: f64 = batchdropskip + 1,
-
-const batchdropskip = 0.5;
-const dropOutRate = 0.00;
-
-const scale = 1.0 / (1.0 - dropOutRate);
-const usedrop = false;
+rounds: f64 = 1.5,
 
 pub fn copyParams(self: *Self, other: Self) void {
     self.weights = other.weights;
@@ -59,6 +50,7 @@ pub fn copyParams(self: *Self, other: Self) void {
 pub fn rescale(self: *Self, other: Self) void {
     self.weights.insert(other.weights);
     self.biases.insert(other.biases);
+    self.maxAvgGrad = other.maxAvgGrad;
     for (other.inputSize * other.outputSize..self.inputSize * self.outputSize) |w| {
         const dev = @as(f64, @floatFromInt(self.inputSize));
         self.weights.data[w] = 0;
@@ -135,7 +127,6 @@ pub fn init(
     std.debug.assert(batchSize != 0);
 
     const returned = Self{
-        .dropOut = try alloc.alloc(bool, inputSize * outputSize),
         .last_inputs = undefined,
         .fwd_out = try alloc.alloc(f64, outputSize * batchSize),
         .bkw_out = try alloc.alloc(f64, inputSize * batchSize),
@@ -148,7 +139,6 @@ pub fn init(
         .outputSize = outputSize,
         .inputSize = inputSize,
         .rounds = -60000 / 100,
-        .nodrop = 1.0,
     };
     for (0..inputSize) |i| {
         for (0..outputSize) |o| {
@@ -183,7 +173,6 @@ pub fn deinitBackwards(self: *Self, alloc: std.mem.Allocator) void {
 
     //alloc.free(self.last_inputs);
     //alloc.free(self.outputs);
-    self.nodrop = scale;
     alloc.free(self.weights.EMA);
     alloc.free(self.weights.grad);
     alloc.free(self.weights.moment);
@@ -204,19 +193,6 @@ pub fn forward(
     }
     std.debug.assert(inputs.len == self.inputSize * self.batchSize);
 
-    //if (usedrop) {
-    //    self.rounds += 1.0;
-    //    if (self.rounds >= batchdropskip) {
-    //        //std.debug.print("round 10", .{});
-    //        self.rounds = 0.0; //todo move from being perbatch to per epoch, etc.
-    //        for (0..self.inputSize) |i| {
-    //            for (0..self.outputSize) |o| {
-    //                //const d: f64 = @as(f64, @floatFromInt(self.outputSize * i + o + 1)) / @as(f64, @floatFromInt(self.outputSize * self.inputSize));
-    //                self.dropOut[self.outputSize * i + o] = prng.random().float(f64) >= dropOutRate; // / (d * 2);
-    //            }
-    //        }
-    //    }
-    //}
     for (0..self.batchSize) |b| {
         for (0..self.outputSize) |o| {
             var sum: f64 = 0;
@@ -250,9 +226,7 @@ pub fn backwards(
 
             var i: usize = 0;
             while (i < self.inputSize) : (i += 1) {
-                //if (!usedrop or self.dropOut[self.outputSize * i + o]) {
-                //const drop = @as(f64, @floatFromInt(@intFromBool(self.dropOut[self.outputSize * i + o])));
-                const w = (grads[b * self.outputSize + o] * self.last_inputs[b * self.inputSize + i]); // * drop;
+                const w = (grads[b * self.outputSize + o] * self.last_inputs[b * self.inputSize + i]);
 
                 //const aw = self.average_weight_gradient[i * self.outputSize + o];
                 //self.average_weight_gradient[i * self.outputSize + o] = aw + (smoothing * (w - aw));
@@ -261,11 +235,11 @@ pub fn backwards(
                 //const wadj = std.math.sign(wdiff) * std.math.pow(f64, @abs(wdiff), 1.5);
                 //_ = wadj;
                 //todo scale by variance of weight grad
-                self.weights.grad[i + self.inputSize * o] += (w / @as(f64, @floatFromInt(self.batchSize))); // * wadj; //  * drop;
+                self.weights.grad[i + self.inputSize * o] += (w / @as(f64, @floatFromInt(self.batchSize))); // * wadj;
                 self.bkw_out[b * self.inputSize + i] +=
                     grads[b * self.outputSize + o] *
                     self.weights.data[i + self.inputSize * o];
-                //funnyMulti(self.weights.data[i + self.inputSize * o], self.weights.EMA[i + self.inputSize * o]); //  * drop;
+                //funnyMulti(self.weights.data[i + self.inputSize * o], self.weights.EMA[i + self.inputSize * o]);
                 //}
             }
         }

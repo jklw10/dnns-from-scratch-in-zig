@@ -9,6 +9,8 @@ const reloid = @import("reloid.zig");
 const pyramid = @import("pyramid.zig");
 const gaussian = @import("gaussian.zig");
 const pGaussian = @import("parGaussian.zig");
+const dropout = @import("dropout.zig");
+const selfPredict = @import("selfPredict.zig");
 
 const utils = @import("utils.zig");
 
@@ -21,7 +23,9 @@ pub const uLayer = union(enum) {
     Gaussian: void,
     PGaussian: void,
     Reloid: void,
+    Dropout: void,
 
+    SelfPredict: void,
     pub fn layerInit(comptime desc: uLayer, alloc: std.mem.Allocator, lcommon: anytype) !Layer {
         //comptime var lsize = 0;
 
@@ -34,6 +38,8 @@ pub const uLayer = union(enum) {
             .Gaussian => gaussian,
             .PGaussian => pGaussian,
             .Pyramid => pyramid,
+            .Dropout => dropout,
+            .SelfPredict => selfPredict,
         };
         const lconf = switch (desc) {
             inline else => |s| s,
@@ -55,6 +61,8 @@ pub const uLayer = union(enum) {
             .Pyramid => Layer{ .Pyramid = ltt },
             .Gaussian => Layer{ .Gaussian = ltt },
             .PGaussian => Layer{ .PGaussian = ltt },
+            .Dropout => Layer{ .Dropout = ltt },
+            .SelfPredict => Layer{ .SelfPredict = ltt },
         };
 
         return layerType;
@@ -71,6 +79,8 @@ pub const Layer = union(enum) {
     Gaussian: gaussian,
     PGaussian: pGaussian,
     Reloid: reloid,
+    Dropout: dropout,
+    SelfPredict: selfPredict,
 
     pub fn forward(this: *@This(), args: anytype) void {
         switch (this.*) {

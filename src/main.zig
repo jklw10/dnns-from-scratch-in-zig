@@ -9,6 +9,7 @@ const reloid = @import("reloid.zig");
 const pyramid = @import("pyramid.zig");
 const gaussian = @import("gaussian.zig");
 const pGaussian = @import("parGaussian.zig");
+const dropout = @import("dropout.zig");
 
 const lt = @import("layerTypes.zig");
 
@@ -22,10 +23,12 @@ const scheduleItem = struct {
     hLSize: usize,
 };
 const schedule = [_]scheduleItem{
+    //.{ .epochs = 100, .hLSize = 25 },
+    //.{ .epochs = 1, .hLSize = 10 },
+    //.{ .epochs = 2, .hLSize = 20 },
+    //.{ .epochs = 4, .hLSize = 40 },
+    //.{ .epochs = 8, .hLSize = 80 },
     .{ .epochs = 100, .hLSize = 25 },
-    //.{ .epochs = 5, .hLSize = 25 },
-    //.{ .epochs = 5, .hLSize = 50 },
-    //.{ .epochs = 20, .hLSize = 100 },
     //.{ .epochs = 25, .hLSize = 25 },
     //.{ .epochs = 32, .hLSize = 32 },
     //.{ .epochs = 64, .hLSize = 64 },
@@ -102,18 +105,22 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
     const default = lt.uLayer.Relu;
 
     const fileL = [_]lt.uLayer{
-        .{ .LayerG = ps }, default,
-        .{ .LayerG = ps }, .Reloid,
-        .{ .LayerG = ps }, .Reloid,
-        .{ .LayerG = ps }, .Reloid,
-        .{ .LayerG = 10 }, default,
+        .{ .LayerG = ps },     default,
+        .{ .LayerG = ps * 2 }, .Reloid,
+        .SelfPredict,          .{ .LayerG = ps * 2 },
+        .Reloid,               .SelfPredict,
+        .{ .LayerG = ps * 2 }, .Reloid,
+        .SelfPredict,          .{ .LayerG = 10 * 2 },
+        default,               .SelfPredict,
     };
     const layers = comptime [_]lt.uLayer{
-        .{ .LayerG = cs }, default,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = 10 }, default,
+        .{ .LayerG = cs },     default, //.SelfPredict,
+        .{ .LayerG = cs * 2 }, .Reloid,
+        .SelfPredict,          .{ .LayerG = cs * 2 },
+        .Reloid,               .SelfPredict,
+        .{ .LayerG = cs * 2 }, .Reloid,
+        .SelfPredict,          .{ .LayerG = 10 * 2 },
+        default,               .SelfPredict,
     };
 
     const nntype = LayerStorage(&layers, @TypeOf(dataset));
@@ -187,6 +194,7 @@ fn LayerStorage(definition: []const lt.uLayer, datatype: anytype) type {
                 switch (lay) {
                     .Layer, .LayerB, .LayerG => |size| previousLayerSize = size,
                     .PGaussian => previousLayerSize = previousLayerSize - 3,
+                    .SelfPredict => previousLayerSize = previousLayerSize / 2,
                     else => {},
                 }
             }

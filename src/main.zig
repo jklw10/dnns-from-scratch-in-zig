@@ -23,7 +23,7 @@ const scheduleItem = struct {
     hLSize: usize,
 };
 const schedule = [_]scheduleItem{
-    .{ .epochs = 100, .hLSize = 25 },
+    //.{ .epochs = 100, .hLSize = 25 },
     .{ .epochs = 5, .hLSize = 25 },
     .{ .epochs = 5, .hLSize = 50 },
     .{ .epochs = 20, .hLSize = 100 },
@@ -134,8 +134,9 @@ pub fn main() !void {
                 validationConfig,
                 arena2.allocator(),
             );
-            arena.deinit();
-            arena = arena2;
+            _ = arena.reset(.free_all);
+            std.mem.swap(std.heap.ArenaAllocator, &arena, &arena2);
+            //arena = arena2;
         }
 
         const epochs = schedule[itera].epochs;

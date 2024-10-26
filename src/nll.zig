@@ -7,12 +7,14 @@ loss: []f64, // = [1]f64{0} ** (batchSize);
 input_grads: []f64, // = [1]f64{0} ** (batchSize * inputSize);
 batchSize: usize,
 inputSize: usize,
-
+lambda: f64,
+regDim: f64,
 const Self = @This();
 
 pub fn init(
     inputSize: usize,
     batchSize: usize,
+    config: anytype,
     alloc: std.mem.Allocator,
 ) !Self {
     return Self{
@@ -20,27 +22,23 @@ pub fn init(
         .input_grads = try alloc.alloc(f64, batchSize * inputSize),
         .batchSize = batchSize,
         .inputSize = inputSize,
+        .lambda = config.lambda,
+        .regDim = config.regDim,
     };
 }
-pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, network: []lt.Layer, config: anytype) !void {
-    const regDim = config.regDim;
-
-    const lambda = config.lambda;
-
+pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, network: []lt.Layer) !void {
     std.debug.assert(targets.len == self.batchSize);
     std.debug.assert(inputs.len == self.batchSize * self.inputSize);
-
-    //_ = (lambda / 2.0) * l2_sum;
 
     var lp_sum: f64 = 0.0;
     for (network) |layer| {
         if (@hasField(@TypeOf(layer), "weights")) {
             for (layer.weights) |weight| {
-                lp_sum += std.math.pow(f64, @abs(weight), regDim);
+                lp_sum += std.math.pow(f64, @abs(weight), self.regDim);
             }
         }
     }
-    const lp_term = (lambda / regDim) * lp_sum; // Equivalent to the Lp penalty term
+    const lp_term = (self.lambda / self.regDim) * lp_sum; // Equivalent to the Lp penalty term
     //const l2_term = (lambda / 2.0) * l2_sum;
 
     //todo make assert right.

@@ -53,15 +53,19 @@ pub const Stat = struct {
     range: f64,
     avg: f64,
     avgabs: f64,
+    norm: f64,
 };
 pub fn stats(arr: []f64) Stat {
     var min: f64 = std.math.floatMax(f64);
     var max: f64 = -min;
+    var sqsum: f64 = 0.000000001;
     var sum: f64 = 0.000000001;
     var absum: f64 = 0.000000001;
     for (arr) |elem| {
         if (min > elem) min = elem;
         if (max < elem) max = elem;
+
+        sqsum += elem * elem;
         sum += elem;
         absum += @abs(elem);
     }
@@ -69,7 +73,61 @@ pub fn stats(arr: []f64) Stat {
         .range = @max(0.000000001, @abs(max - min)),
         .avg = sum / @as(f64, @floatFromInt(arr.len)),
         .avgabs = absum / @as(f64, @floatFromInt(arr.len)),
+        .norm = @sqrt(sqsum),
     };
+}
+pub fn infnorm(arr: []f64) f64 {
+    var sqsum: f64 = 0.000000001;
+    for (arr) |elem| {
+        //same as magnitude of complex power
+        sqsum += @max(@abs(elem), sqsum);
+    }
+    return sqsum;
+}
+pub fn pnorm(arr: []f64, p: f64) f64 {
+    var sqsum: f64 = 0.000000001;
+    for (arr) |elem| {
+        //same as magnitude of complex power
+        sqsum += std.math.pow(f64, @abs(elem), p);
+    }
+    return std.math.pow(f64, sqsum, 1 / p);
+}
+pub fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
+    const gv = stats(arr);
+    for (0..arr.len) |i| {
+        arr[i] -= alpha * (arr[i] - (((arr[i] - gv.avg) / gv.range * multi) + bias));
+    }
+    return arr;
+}
+pub fn enormalize(arr: []f64) []f64 {
+    const gv = infnorm(arr);
+    for (0..arr.len) |i| {
+        arr[i] /= gv;
+    }
+    return arr;
+}
+pub fn shufflePairedWindows(
+    r: anytype,
+    comptime T: type,
+    comptime size: usize,
+    buf: []T,
+    comptime T2: type,
+    comptime size2: usize,
+    buf2: []T2,
+) void {
+    const MinInt = usize;
+    if (buf.len < 2) {
+        return;
+    }
+    // `i <= j < max <= maxInt(MinInt)`
+    const max: MinInt = @intCast(buf.len / size);
+    var i: MinInt = 0;
+    while (i < max - 1) : (i += 1) {
+        const j: MinInt = @intCast(r.random().intRangeLessThan(usize, i, max));
+        std.mem.swap([size]T, buf[i * size ..][0..size], buf[j * size ..][0..size]);
+
+        std.mem.swap([size2]T2, buf2[i * size2 ..][0..size2], buf2[j * size2 ..][0..size2]);
+    }
 }
 pub fn callIfTypeMatch(t: anytype, args: anytype, comptime name: []const u8) void {
     if (@TypeOf(t) == @TypeOf(args) and @hasDecl(@TypeOf(args), name)) {
@@ -92,25 +150,5 @@ pub fn callIfCanErr(t: anytype, args: anytype, comptime name: []const u8) !void 
                 try @field(l, name)(l, args);
             }
         },
-    }
-}
-pub fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
-    const gv = stats(arr);
-    for (0..arr.len) |i| {
-        arr[i] -= alpha * (arr[i] - (((arr[i] - gv.avg) / gv.range * multi) + bias));
-    }
-    return arr;
-}
-pub fn shuffleWindows(r: anytype, comptime T: type, comptime size: usize, buf: []T) void {
-    const MinInt = usize;
-    if (buf.len < 2) {
-        return;
-    }
-    // `i <= j < max <= maxInt(MinInt)`
-    const max: MinInt = @intCast(buf.len / size);
-    var i: MinInt = 0;
-    while (i < max - 1) : (i += 1) {
-        const j: MinInt = @intCast(r.random().intRangeLessThan(usize, i, max));
-        std.mem.swap([size]T, buf[i..][0..size], buf[j..][0..size]);
     }
 }

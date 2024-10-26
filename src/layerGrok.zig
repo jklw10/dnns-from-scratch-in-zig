@@ -56,9 +56,10 @@ pub fn copyParams(self: *Self, other: Self) void {
     self.weights = other.weights;
     self.biases = other.biases;
 }
-pub fn rescale(self: *Self, other: Self) void {
+pub fn insert(self: *Self, other: Self) void {
     self.weights.insert(other.weights);
     self.biases.insert(other.biases);
+    self.maxAvgGrad = other.maxAvgGrad;
     for (other.inputSize * other.outputSize..self.inputSize * self.outputSize) |w| {
         const dev = @as(f64, @floatFromInt(self.inputSize));
         self.weights.data[w] = 0;
@@ -298,7 +299,8 @@ pub fn applyGradients(self: *Self, config: anytype) void {
 
     const inputFract = 2.0 / @as(f64, @floatFromInt(self.inputSize));
     _ = .{ awstat, wstat, inputFract };
-    //self.weights.grad = normalize(self.weights.grad, 2 - He, 0, 1);
+    //self.weights.grad = utils.normalize(self.weights.grad, 2 - inputFract, 0, 1);
+    //self.weights.grad = utils.acnormalize(self.weights.grad);
     const wsize = self.inputSize * self.outputSize;
     for (0..wsize) |i| {
         const wema = self.weights.EMA[i];
@@ -312,6 +314,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
 
         const abng = self.weights.grad[i];
         var g = ((abng - wgstat.avg) / wgstat.range) * (2 - inputFract);
+        //var g = abng / wgstat.norm;
         //_ = l2;
         g = g + l_p; // Updating the gradient using the fractional Lp regularization
         //g = g + l2; // + l2; // + EN;
@@ -330,7 +333,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         //    self.weights.data[i] = 0;
         //    std.debug.print("reinit", .{});
         //}
-        _ = .{gdiff};
+        _ = .{ gdiff, fw };
         self.weights.data[i] -= lr * g * gdiff; // * mdiff;
         self.weights.EMA[i] += (smoothing * (w - wema));
         self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);

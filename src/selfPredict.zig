@@ -1,6 +1,7 @@
 const std = @import("std");
 
-const nll = @import("nll");
+const utils = @import("utils.zig");
+
 last_inputs: []const f64 = undefined,
 fwd_out: []f64,
 bkw_out: []f64,
@@ -54,14 +55,16 @@ pub fn forward(self: *Self, inputs: []f64) void {
 pub fn backwards(self: *Self, grads: []f64) void {
     std.debug.assert(grads.len == self.size * self.batchSize / 2);
     self.makeGrads();
+    self.loss = utils.normalize(self.loss, 1, 0, 1);
     for (0..self.batchSize) |b| {
         for (0..self.size / 2) |i| {
             const idx = b * self.size + i;
             const idxo = b * self.size / 2 + i;
             const idx2 = b * self.size + self.size / 2 + i;
-
-            self.bkw_out[idx] = grads[idxo] + self.loss[idxo] * 0.00001;
-            self.bkw_out[idx2] = self.loss[idxo] * 0.00001;
+            //TODO
+            const scale = 1.0 / @as(f64, @floatFromInt(self.size * self.batchSize / 2));
+            self.bkw_out[idx] = grads[idxo] + grads[idxo] * self.loss[idxo] * scale;
+            self.bkw_out[idx2] = grads[idxo] * self.loss[idxo] * scale;
         }
     }
 }

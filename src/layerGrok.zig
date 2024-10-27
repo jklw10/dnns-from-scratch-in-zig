@@ -325,13 +325,13 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         self.biases.data[o] -= lr * g * gdiff;
         self.biases.EMA[o] += smoothing * (b - bema);
     }
-
-    if (self.maxAvgGrad < wgstat.avgabs) {
+    const mstat = utils.stats(self.weights.moment);
+    if (self.maxAvgGrad > wgstat.avgabs) {
         self.maxAvgGrad = wgstat.avgabs;
         //TODO: test this:
         @memcpy(self.weights.EMA, self.weights.data);
         //@memcpy(self.weights.moment, self.weights.grad);
     } else {
-        self.maxAvgGrad -= wgstat.avgabs;
+        self.maxAvgGrad += mstat.avgabs;
     }
 }

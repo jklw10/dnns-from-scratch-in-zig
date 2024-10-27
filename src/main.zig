@@ -28,7 +28,7 @@ const schedule = [_]scheduleItem{
     //.{ .epochs = 2, .hLSize = 20 },
     //.{ .epochs = 4, .hLSize = 40 },
     //.{ .epochs = 8, .hLSize = 80 },
-    .{ .epochs = 100, .hLSize = 25 },
+    .{ .epochs = 1000, .hLSize = 10 },
     //.{ .epochs = 25, .hLSize = 25 },
     //.{ .epochs = 32, .hLSize = 32 },
     //.{ .epochs = 64, .hLSize = 64 },
@@ -105,22 +105,18 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
     const default = lt.uLayer.Relu;
 
     const fileL = [_]lt.uLayer{
-        .{ .LayerG = ps },     default,
-        .{ .LayerG = ps * 2 }, .Reloid,
-        .SelfPredict,          .{ .LayerG = ps * 2 },
-        .Reloid,               .SelfPredict,
-        .{ .LayerG = ps * 2 }, .Reloid,
-        .SelfPredict,          .{ .LayerG = 10 * 2 },
-        default,               .SelfPredict,
+        .Dropout, .{ .LayerG = ps }, default,
+        .Dropout, .{ .LayerG = ps }, .Reloid,
+        .Dropout, .{ .LayerG = ps }, .Reloid,
+        .Dropout, .{ .LayerG = ps }, .Reloid,
+        .Dropout, .{ .LayerG = 10 }, default,
     };
     const layers = comptime [_]lt.uLayer{
-        .{ .LayerG = cs },     default, //.SelfPredict,
-        .{ .LayerG = cs * 2 }, .Reloid,
-        .SelfPredict,          .{ .LayerG = cs * 2 },
-        .Reloid,               .SelfPredict,
-        .{ .LayerG = cs * 2 }, .Reloid,
-        .SelfPredict,          .{ .LayerG = 10 * 2 },
-        default,               .SelfPredict,
+        .Dropout, .{ .LayerG = cs }, default,
+        .Dropout, .{ .LayerG = cs }, .Reloid,
+        .Dropout, .{ .LayerG = cs }, .Reloid,
+        .Dropout, .{ .LayerG = cs }, .Reloid,
+        .Dropout, .{ .LayerG = 10 }, default,
     };
 
     const nntype = LayerStorage(&layers, @TypeOf(dataset));

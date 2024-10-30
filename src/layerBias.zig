@@ -44,12 +44,13 @@ pub fn init(
 
     var w: usize = 0;
     while (w < inputSize * outputSize) : (w += 1) {
-        weights[w] = prng.random().floatNorm(f64) * 0.2;
+        const dev = @as(f64, @floatFromInt(inputSize));
+        weights[w] = prng.random().floatNorm(f64) * @sqrt(2.0 / dev);
     }
 
     var b: usize = 0;
     while (b < outputSize) : (b += 1) {
-        biases[b] = prng.random().floatNorm(f64) * 0.2;
+        biases[b] = prng.random().floatNorm(f64) * 0.01;
     }
 
     return Self{
@@ -131,7 +132,10 @@ pub fn applyGradients(self: *Self, config: anytype) void {
 
     var i: usize = 0;
     while (i < self.inputSize * self.outputSize) : (i += 1) {
-        self.weights[i] -= lr * (self.weight_grads[i] - lambda);
+        const fractional_p = config.regDim;
+        const l_p = lambda * std.math.sign(self.weights[i]) * std.math.pow(f64, @abs(self.weights[i]), fractional_p - 1);
+
+        self.weights[i] -= lr * (self.weight_grads[i] - l_p);
     }
 
     var o: usize = 0;

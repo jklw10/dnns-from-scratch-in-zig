@@ -28,7 +28,7 @@ const schedule = [_]scheduleItem{
     //.{ .epochs = 2, .hLSize = 20 },
     //.{ .epochs = 4, .hLSize = 40 },
     //.{ .epochs = 8, .hLSize = 80 },
-    .{ .epochs = 1000, .hLSize = 10 },
+    .{ .epochs = 100, .hLSize = 25 },
     //.{ .epochs = 25, .hLSize = 25 },
     //.{ .epochs = 32, .hLSize = 32 },
     //.{ .epochs = 64, .hLSize = 64 },
@@ -37,7 +37,7 @@ const schedule = [_]scheduleItem{
 
 const resetEpOnRescale = true;
 const continueFrom = 0;
-const l2_lambda = 0.0075;
+const l2_lambda = 0.000075;
 const m = std.math;
 const regDim: f64 = m.phi;
 
@@ -56,7 +56,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    const dataset = try dataSet.mnist.dtype.readData(allocator);
+    const dataset = try dataSet.mnistFashion.dtype.readData(allocator);
     defer dataset.deinit(allocator);
 
     if (graphfuncs) {
@@ -105,18 +105,18 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
     const default = lt.uLayer.Relu;
 
     const fileL = [_]lt.uLayer{
-        .Dropout, .{ .LayerG = ps }, default,
-        .Dropout, .{ .LayerG = ps }, .Reloid,
-        .Dropout, .{ .LayerG = ps }, .Reloid,
-        .Dropout, .{ .LayerG = ps }, .Reloid,
-        .Dropout, .{ .LayerG = 10 }, default,
+        .{ .LayerG = ps }, default,
+        .{ .LayerG = ps }, .Reloid,
+        .{ .LayerG = ps }, .Reloid,
+        .{ .LayerG = ps }, .Reloid,
+        .{ .LayerG = 10 }, default,
     };
     const layers = comptime [_]lt.uLayer{
-        .Dropout, .{ .LayerG = cs }, default,
-        .Dropout, .{ .LayerG = cs }, .Reloid,
-        .Dropout, .{ .LayerG = cs }, .Reloid,
-        .Dropout, .{ .LayerG = cs }, .Reloid,
-        .Dropout, .{ .LayerG = 10 }, default,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = 10 }, default,
     };
 
     const nntype = LayerStorage(&layers, @TypeOf(dataset));

@@ -271,6 +271,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     //self.normBias -= wgstat.avg * normlr;
 
     const inputFract = 2.0 / @as(f64, @floatFromInt(self.inputSize));
+    //const dev = @sqrt(inputFract);
     _ = .{ awstat, wstat, inputFract };
     //self.weights.grad = normalize(self.weights.grad, 2 - He, 0, 1);
     const wsize = self.inputSize * self.outputSize;
@@ -285,6 +286,12 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         const l_p = lambda * std.math.sign(w) * std.math.pow(f64, @abs(w), fractional_p - 1);
 
         const abng = self.weights.grad[i];
+        //if (self.weights.moment[i] > 1) {
+        //    self.weights.moment[i] = 0;
+        //    self.weights.data[i] = prng.random().floatNorm(f64) * dev;
+        //    self.weights.EMA[i] = prng.random().floatNorm(f64) * dev;
+        //    abng ;
+        //}
         var g = ((abng - wgstat.avg) / wgstat.range) * (2 - inputFract);
         //_ = l2;
         g = g + l_p; // Updating the gradient using the fractional Lp regularization
@@ -297,17 +304,17 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
 
-        //const moment = self.weights.moment[i];
-        //const mdiff = @sqrt(1.0 / (moment + @abs(@abs(abng) - moment)));
+        const moment = @abs(g / self.weights.moment[i]);
+        const mdiff = @sqrt(1.0 / moment);
         //if (self.weights.moment[i] < 1e-3) {
         //    self.weights.moment[i] = @abs(self.weights.data[i]);
         //    self.weights.data[i] = 0;
         //    std.debug.print("reinit", .{});
         //}
-        _ = .{gdiff};
-        self.weights.data[i] -= lr * g * gdiff; // * mdiff;
+        _ = .{ gdiff, mdiff };
+        self.weights.data[i] -= lr * g * gdiff;
         self.weights.EMA[i] += (smoothing * (w - wema));
-        self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
+        self.weights.moment[i] += 0.5 * (g - self.weights.moment[i]);
     }
     //1.0625
     self.weights.data = utils.normalize(self.weights.data, 1 + inputFract, 0, 1);

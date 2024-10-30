@@ -22,6 +22,7 @@ pub fn init(
         .inputSize = inputSize,
     };
 }
+const log = false;
 pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, network: []lt.Layer, config: anytype) !void {
     const regDim = config.regDim;
 
@@ -33,11 +34,29 @@ pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, network: []lt.Layer, c
     //_ = (lambda / 2.0) * l2_sum;
 
     var lp_sum: f64 = 0.0;
+    _ = .{ &lp_sum, network };
     for (network) |layer| {
-        if (@hasField(@TypeOf(layer), "weights")) {
-            for (layer.weights) |weight| {
-                lp_sum += std.math.pow(f64, @abs(weight), regDim);
-            }
+        switch (layer) {
+            inline else => |lfilt| {
+                if (@hasField(@TypeOf(lfilt), "weights")) {
+                    if (@hasField(@TypeOf(lfilt.weights), "data")) {
+                        if (log)
+                            std.debug.print("lgrok\n", .{});
+                        for (lfilt.weights.data) |weight| {
+                            lp_sum += std.math.pow(f64, @abs(weight), regDim);
+                        }
+                    } else {
+                        if (log)
+                            std.debug.print("not lg\n", .{});
+                        for (lfilt.weights) |weight| {
+                            lp_sum += std.math.pow(f64, @abs(weight), regDim);
+                        }
+                    }
+                } else {
+                    if (log)
+                        std.debug.print("no weights on {}\n", .{@TypeOf(lfilt)});
+                }
+            },
         }
     }
     const lp_term = (lambda / regDim) * lp_sum; // Equivalent to the Lp penalty term

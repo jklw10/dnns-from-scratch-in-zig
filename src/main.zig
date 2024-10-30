@@ -23,12 +23,12 @@ const scheduleItem = struct {
     hLSize: usize,
 };
 const schedule = [_]scheduleItem{
-    //.{ .epochs = 100, .hLSize = 25 },
-    //.{ .epochs = 1, .hLSize = 10 },
-    //.{ .epochs = 2, .hLSize = 20 },
-    //.{ .epochs = 4, .hLSize = 40 },
-    //.{ .epochs = 8, .hLSize = 80 },
     .{ .epochs = 100, .hLSize = 25 },
+    //.{ .epochs = 5, .hLSize = 10 },
+    //.{ .epochs = 5, .hLSize = 20 },
+    //.{ .epochs = 5, .hLSize = 40 },
+    //.{ .epochs = 8, .hLSize = 80 },
+    //.{ .epochs = 10, .hLSize = 100 },
     //.{ .epochs = 25, .hLSize = 25 },
     //.{ .epochs = 32, .hLSize = 32 },
     //.{ .epochs = 64, .hLSize = 64 },
@@ -37,7 +37,7 @@ const schedule = [_]scheduleItem{
 
 const resetEpOnRescale = true;
 const continueFrom = 0;
-const l2_lambda = 0.000075;
+const l2_lambda = 0.0000075;
 const m = std.math;
 const regDim: f64 = m.phi;
 
@@ -113,9 +113,9 @@ fn runSchedule(comptime itera: usize, dataset: anytype, allocator: std.mem.Alloc
     };
     const layers = comptime [_]lt.uLayer{
         .{ .LayerG = cs }, default,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, default,
         .{ .LayerG = 10 }, default,
     };
 

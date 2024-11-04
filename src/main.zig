@@ -35,6 +35,7 @@ const schedule = [_]scheduleItem{
 
 const resetEpOnRescale = true;
 const continueFrom = 0;
+const l2_lambda = 0.00001;
 const lambda = 0.0075;
 const m = std.math;
 const regDim: f64 = m.phi;
@@ -51,6 +52,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
+    const dataset = try dataSet.mnist.dtype.readData(allocator);
     const dataset = try dataSet.mnist.dtype.readData(allocator);
     defer dataset.deinit(allocator);
 

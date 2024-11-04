@@ -32,10 +32,18 @@ pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, network: []lt.Layer) !
 
     var lp_sum: f64 = 0.0;
     for (network) |layer| {
-        if (@hasField(@TypeOf(layer), "weights")) {
-            for (layer.weights) |weight| {
-                lp_sum += std.math.pow(f64, @abs(weight), self.regDim);
-            }
+        switch (layer) {
+            inline else => |lfilt| {
+                if (!@hasField(@TypeOf(lfilt), "weights")) break;
+                const weights = if (@hasField(@TypeOf(lfilt.weights), "data"))
+                    lfilt.weights.data
+                else
+                    lfilt.weights;
+                const weightCount = @as(f64, @floatFromInt(lfilt.inputSize * lfilt.outputSize));
+                for (weights) |weight| {
+                    lp_sum += std.math.pow(f64, @abs(weight / weightCount), self.regDim);
+                }
+            },
         }
     }
     const lp_term = (self.lambda / self.regDim) * lp_sum; // Equivalent to the Lp penalty term

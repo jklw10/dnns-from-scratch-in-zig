@@ -285,7 +285,7 @@ const elasticAlpha = 0.0;
 
 pub fn applyGradients(self: *Self, config: anytype) void {
     self.rounds += 1.0;
-    const lambda = config.lambda;
+    const lambda = config.lambda / @as(f64, @floatFromInt(self.inputSize * self.outputSize));
     const lr = config.lr; // / ((self.rounds / roundsPerEp) + 1);
 
     const normlr = lr / 10.0;
@@ -324,7 +324,7 @@ pub fn applyGradients(self: *Self, config: anytype) void {
 
         const awdiff = wema - fw;
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
-        const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
+        const gdiff = 1.0 / (@abs(wema) + @abs(g - awdiff));
 
         //const moment = self.weights.moment[i];
         //const mdiff = @sqrt(1.0 / (moment + @abs(@abs(abng) - moment)));
@@ -341,7 +341,6 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     //1.0625
     self.weights.data = utils.normalize(self.weights.data, 1 + inputFract, 0, 1);
 
-    //TODO: untest this:
     self.biases.grad = utils.normalize(self.biases.grad, 2 - inputFract, 0, 1);
     for (0..self.outputSize) |o| {
         const g = self.biases.grad[o];
@@ -354,13 +353,19 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         self.biases.data[o] -= lr * g * gdiff;
         self.biases.EMA[o] += smoothing * (b - bema);
     }
+    const mstat = utils.stats(self.weights.moment);
+    _ = .{mstat};
+    if (self.maxAvgGrad < mstat.avgabs) {
+        self.maxAvgGrad = mstat.avgabs;
 
     if (self.maxAvgGrad < wgstat.avgabs) {
         self.maxAvgGrad = wgstat.avgabs;
         //TODO: test this:
-        @memcpy(self.weights.EMA, self.weights.data);
+        //@memcpy(self.weights.data, self.weights.EMA);
         //@memcpy(self.weights.moment, self.weights.grad);
     } else {
+        //self.maxAvgGrad -= mstat.avgabs;
+        //TODO: test this:
         self.maxAvgGrad -= wgstat.avgabs;
     }
 }

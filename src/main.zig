@@ -23,20 +23,12 @@ const scheduleItem = struct {
     hLSize: usize,
 };
 const schedule = [_]scheduleItem{
-    //.{ .epochs = 100, .hLSize = 25 },
-    .{ .epochs = 5, .hLSize = 25 },
-    .{ .epochs = 5, .hLSize = 50 },
-    .{ .epochs = 20, .hLSize = 100 },
-    //.{ .epochs = 25, .hLSize = 25 },
-    //.{ .epochs = 32, .hLSize = 32 },
-    //.{ .epochs = 64, .hLSize = 64 },
-    //.{ .epochs = 100, .hLSize = 100 },
+    .{ .epochs = 100, .hLSize = 25 },
 };
 
 const resetEpOnRescale = true;
 const continueFrom = 0;
-const l2_lambda = 0.00001;
-const lambda = 0.0075;
+const lambda = 0.1;
 const m = std.math;
 const regDim: f64 = m.phi;
 
@@ -47,12 +39,48 @@ const fileSignature = "G25RRRR_G10R.f64";
 
 const reinit = false;
 
+const bmphead = [_]u8{
+    0x42, 0x4D, // BM
+    0x7A, 0x00, 0x00, 0x00, //size in bytes (little endian)
+    0x00, 0x00, //reserved
+    0x00, 0x00, //reserved
+    0x36, 0x00, 0x00, 0x00, //starting address of byte wheere bmp is found (little endian)
+    0x28, //DIB header size
+    0x00, 0x00, 0x00, 0x20, //width
+    0x00, 0x00, 0x00, 0x20, //height
+    0x00, 0x01, //color planes? 1?
+    0x00, 0x18, //bits per pixel
+    0x00, 0x00, 0x00, 0x00, //compression method
+    0x00, 0x00, 0x00, 0x00, //image size, can be 0 without compression
+    0x00, 0x00, 0x00, 0x13, //pixel per metre horizontal resolution
+    0x00, 0x00, 0x00, 0x13, //pixel per metre vertical resolution
+    0x00, 0x00, 0x00, 0x00, //number of colors in palette
+    0x00, 0x00, 0x00, 0x00, //number of important colors.
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     const allocator = gpa.allocator();
 
-    const dataset = try dataSet.mnist.dtype.readData(allocator);
+    const dataset = try dataSet.cifar.dtype.readData(allocator);
+
+    const filew = try std.fs.cwd().createFile(
+        "data/debug.bmp",
+        .{
+            .read = true,
+            .truncate = true,
+        },
+    );
+    try filew.writeAll(&bmphead);
+    for (0..32) |i| {
+        const imgwidth = 32 * 3;
+        for (0..32 * 3) |j| {
+            try filew.writeAll(&[1]u8{@as(u8, @intFromFloat(256.0 * dataset.test_images[i * imgwidth ..][j]))});
+        }
+    }
+    filew.close();
+
     defer dataset.deinit(allocator);
 
     if (graphfuncs) {
@@ -78,11 +106,11 @@ pub fn main() !void {
     const cs = schedule[0].hLSize;
 
     const layers = comptime [_]lt.uLayer{
-        .{ .LayerG = cs }, default,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = cs }, .Reloid,
-        .{ .LayerG = 10 }, default,
+        .{ .LayerB = cs }, default,
+        .{ .LayerB = cs }, default,
+        .{ .LayerB = cs }, default,
+        .{ .LayerB = cs }, default,
+        .{ .LayerB = 10 }, default,
     };
     const trainConfig = .{
         .deinitBackwards = false,
@@ -118,9 +146,9 @@ pub fn main() !void {
             const ps = schedule[itera].hLSize;
             const fileL = [_]lt.uLayer{
                 .{ .LayerG = ps }, default,
-                .{ .LayerG = ps }, .Reloid,
-                .{ .LayerG = ps }, .Reloid,
-                .{ .LayerG = ps }, .Reloid,
+                .{ .LayerG = ps }, default,
+                .{ .LayerG = ps }, default,
+                .{ .LayerG = ps }, default,
                 .{ .LayerG = 10 }, default,
             };
             var other = try nntype.init(

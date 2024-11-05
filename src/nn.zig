@@ -174,6 +174,7 @@ pub fn NeuralNetwork(datatype: anytype, losst: anytype) type {
                 self.batchBackwards();
                 const ep = @as(f64, @floatFromInt(config.epoch));
                 const adj2 = 1.0 / (ep / 10.0 + 1.0);
+
                 const lr = 0.01 * adj2 * adj2;
                 for (self.storage) |*current| {
                     current.applyGradients(.{ .lambda = config.lambda, .lr = lr, .regDim = config.regDim });

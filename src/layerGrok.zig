@@ -150,16 +150,16 @@ pub fn init(
     @memcpy(returned.weights.EMA, returned.weights.data);
     @memcpy(returned.biases.EMA, returned.biases.data);
 
-    @memcpy(returned.weights.moment, returned.weights.data);
-    @memcpy(returned.biases.moment, returned.biases.data);
+    //@memcpy(returned.weights.moment, returned.weights.data);
+    //@memcpy(returned.biases.moment, returned.biases.data);
 
     //@memset(returned.weights.data, 0);
     //@memset(returned.biases.data, 0);
 
     //@memset(returned.biases.EMA, 0);
     //@memset(returned.weights.EMA, 0);
-    //@memset(returned.biases.moment, 0);
-    //@memset(returned.weights.moment, 0);
+    @memset(returned.biases.moment, 0);
+    @memset(returned.weights.moment, 0);
 
     @memset(returned.biases.moment2, 0);
     @memset(returned.weights.moment2, 0);
@@ -251,9 +251,10 @@ const elasticAlpha = 0.0;
 
 pub fn applyGradients(self: *Self, config: anytype) void {
     self.rounds += 1.0;
-    const lambda = config.lambda / @as(f64, @floatFromInt(self.inputSize * self.outputSize));
+    //const lambda = config.lambda
+    const lambda = 1.0 / @as(f64, @floatFromInt(self.inputSize * self.outputSize));
     const lr = config.lr; // / ((self.rounds / roundsPerEp) + 1);
-
+    const ep = @trunc(self.rounds / roundsPerEp) + 1;
     const normlr = lr / 10.0;
 
     const awstat = utils.stats(self.weights.EMA);
@@ -280,29 +281,34 @@ pub fn applyGradients(self: *Self, config: anytype) void {
 
         const abng = self.weights.grad[i];
         var g = ((abng - wgstat.avg) / wgstat.range) * (2 - inputFract);
-        //var g = abng / wgstat.norm;
-        //_ = l2;
-        g = g + l_p; // Updating the gradient using the fractional Lp regularization
-        //g = g + l2; // + l2; // + EN;
-        //todo, try normalize gradients.
-        //weight average, use with lambda?
-        //nudge towards it with \/ ?
+
+        g = g + l_p;
 
         const awdiff = wema - fw;
-        //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / (@abs(wema) + @abs(g - awdiff));
+        g *= gdiff;
 
-        //const moment = self.weights.moment[i];
-        //const mdiff = @sqrt(1.0 / (moment + @abs(@abs(abng) - moment)));
-        //if (self.weights.moment[i] < 1e-3) {
-        //    self.weights.moment[i] = @abs(self.weights.data[i]);
-        //    self.weights.data[i] = 0;
-        //    std.debug.print("reinit", .{});
-        //}
+        const beta1 = 0.9;
+        const beta2 = 0.999;
+        // update the first moment (momentum)
+        const m: f64 = beta1 * self.weights.moment[i] + (1.0 - beta1) * g;
+        // update the second moment (RMSprop)
+        const v: f64 = beta2 * self.weights.moment2[i] + (1.0 - beta2) * g * g;
+        // bias-correct both moments
+        const m_hat: f64 = m / (1.0 - std.math.pow(f64, beta1, ep));
+        const v_hat: f64 = v / (1.0 - std.math.pow(f64, beta2, ep));
+
+        // update
+        self.weights.moment[i] = m;
+        self.weights.moment2[i] = v;
+        const sqrt_v_hat: f64 = std.math.sqrt(v_hat);
+        const tmp = lr * (m_hat / (sqrt_v_hat + 1e-8) + lr * lambda * w);
+        self.weights.data[i] -= tmp;
+
         _ = .{ gdiff, fw };
-        self.weights.data[i] -= lr * g * gdiff; // * mdiff;
+        //self.weights.data[i] -= lr * g * gdiff; // * mdiff;
         self.weights.EMA[i] += (smoothing * (w - wema));
-        self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
+        //self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
     }
     //1.0625
     self.weights.data = utils.normalize(self.weights.data, 1 + inputFract, 0, 1);

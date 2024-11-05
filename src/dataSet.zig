@@ -116,6 +116,42 @@ pub fn Data(
         }
     };
 }
+pub const mnistFashion = struct {
+    pub const train_images_path: []const u8 = "data/mnist-fashion/train-images-idx3-ubyte";
+    pub const train_labels_path: []const u8 = "data/mnist-fashion/train-labels-idx1-ubyte";
+    pub const test_images_path: []const u8 = "data/mnist-fashion/t10k-images-idx3-ubyte";
+    pub const test_labels_path: []const u8 = "data/mnist-fashion/t10k-labels-idx1-ubyte";
+
+    pub const inputSize = 28 * 28;
+    pub const outputSize = 10;
+    pub const trainSize = 60000;
+    pub const validationSize = 10000;
+
+    pub const dtype = Data(f64, u8, @This());
+
+    pub const ImageFormat = struct {
+        const size = inputSize;
+        const skipBytes = 16;
+        const firstItem = false;
+        const stride = 0;
+        pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
+            for (0..size * inputCount) |i| {
+                const x: out = @as(out, @floatFromInt(input[i]));
+                destination[i] = x / 255;
+            }
+        }
+    };
+    pub const LabelFormat = struct {
+        const size = 1;
+        const skipBytes = 8;
+        const firstItem = false;
+        const stride = 0;
+        pub fn format(comptime out: type, destination: []out, input: []u8, inputCount: usize) void {
+            _ = inputCount;
+            @memcpy(destination, input);
+        }
+    };
+};
 pub const mnist = struct {
     pub const train_images_path: []const u8 = "data/mnist/train-images.idx3-ubyte";
     pub const train_labels_path: []const u8 = "data/mnist/train-labels.idx1-ubyte";

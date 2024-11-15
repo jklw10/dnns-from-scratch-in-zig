@@ -29,24 +29,33 @@ pub fn init(
 pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, network: []lt.Layer) !void {
     std.debug.assert(targets.len == self.batchSize);
     std.debug.assert(inputs.len == self.batchSize * self.inputSize);
-
+    var a_sum: f64 = 0.0;
     var lp_sum: f64 = 0.0;
     for (network) |layer| {
         switch (layer) {
             inline else => |lfilt| {
                 if (!@hasField(@TypeOf(lfilt), "weights")) break;
+
+                if (@hasField(@TypeOf(lfilt), "fwd_out")) {
+                    for (lfilt.fwd_out) |a| {
+                        a_sum += @abs(a / @as(f64, @floatFromInt(lfilt.outputSize)));
+                    }
+                }
                 const weights = if (@hasField(@TypeOf(lfilt.weights), "data"))
                     lfilt.weights.data
                 else
                     lfilt.weights;
+
                 const weightCount = @as(f64, @floatFromInt(lfilt.inputSize * lfilt.outputSize));
                 for (weights) |weight| {
                     lp_sum += std.math.pow(f64, @abs(weight / weightCount), self.regDim);
                 }
             },
         }
+        _ = .{a_sum};
     }
-    const lp_term = (self.lambda / self.regDim) * lp_sum; // Equivalent to the Lp penalty term
+    const lp_term = (self.lambda / self.regDim) * lp_sum + a_sum * 1e-5; // Equivalent to the Lp penalty term
+    //const a_term = (self.lambda / self.regDim) * a_sum; // Equivalent to the Lp penalty term
     //const l2_term = (lambda / 2.0) * l2_sum;
 
     //todo make assert right.

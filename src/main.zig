@@ -28,7 +28,7 @@ const schedule = [_]scheduleItem{
 
 const resetEpOnRescale = true;
 const continueFrom = 0;
-const lambda = 0.1;
+const lambda = 1;
 const m = std.math;
 const regDim: f64 = m.phi;
 
@@ -63,7 +63,7 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    const dataset = try dataSet.cifar.dtype.readData(allocator);
+    const dataset = try dataSet.mnist.dtype.readData(allocator);
 
     const filew = try std.fs.cwd().createFile(
         "data/debug.bmp",
@@ -106,12 +106,21 @@ pub fn main() !void {
     const cs = schedule[0].hLSize;
 
     const layers = comptime [_]lt.uLayer{
-        .{ .LayerB = cs }, default,
-        .{ .LayerB = cs }, default,
-        .{ .LayerB = cs }, default,
-        .{ .LayerB = cs }, default,
-        .{ .LayerB = 10 }, default,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = cs }, default,
+        .{ .LayerG = 10 }, default,
     };
+
+    //const predictaurus = comptime [_]lt.uLayer{
+    //    .{ .LayerG = cs }, default,
+    //    .{ .LayerG = cs }, default,
+    //    .{ .LayerG = cs }, default,
+    //    .{ .LayerG = cs }, default,
+    //    .{ .LayerG = cs+cs+cs+cs }, default,
+    //};
+
     const trainConfig = .{
         .deinitBackwards = false,
         .batchSize = batchSize,

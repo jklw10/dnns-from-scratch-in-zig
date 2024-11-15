@@ -99,6 +99,13 @@ pub fn normalize(arr: []f64, multi: f64, bias: f64, alpha: f64) []f64 {
     }
     return arr;
 }
+pub fn autoclip(arr: []f64, bounds: f64) []f64 {
+    for (0..arr.len) |i| {
+        arr[i] = std.math.clamp(arr[i], -bounds, bounds);
+        //bounds / (1 + std.math.pow(f64, std.math.e, arr[i]));
+    }
+    return arr;
+}
 pub fn enormalize(arr: []f64) []f64 {
     const gv = infnorm(arr);
     for (0..arr.len) |i| {

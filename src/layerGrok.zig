@@ -250,11 +250,11 @@ const smoothing = 0.1;
 const elasticAlpha = 0.0;
 
 pub fn applyGradients(self: *Self, config: anytype) void {
-    self.rounds += 1.0;
     //const lambda = config.lambda
+    self.rounds += 1.0;
     const lambda = 1.0 / @as(f64, @floatFromInt(self.inputSize * self.outputSize));
     const lr = config.lr; // / ((self.rounds / roundsPerEp) + 1);
-    const ep = @trunc(self.rounds / roundsPerEp) + 1;
+    //const ep = self.rounds + 1;
     const normlr = lr / 10.0;
 
     const awstat = utils.stats(self.weights.EMA);
@@ -267,14 +267,11 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     const inputFract = 2.0 / @as(f64, @floatFromInt(self.inputSize));
     _ = .{ awstat, wstat, inputFract };
     //self.weights.grad = utils.normalize(self.weights.grad, 2 - inputFract, 0, 1);
-    //self.weights.grad = utils.acnormalize(self.weights.grad);
     const wsize = self.inputSize * self.outputSize;
     for (0..wsize) |i| {
         const wema = self.weights.EMA[i];
-        const w = self.weights.data[i]; //funnyMulti(self.weights.data[i], wema);
+        const w = self.weights.data[i];
         const fw = funnyMulti(self.weights.data[i], wema);
-
-        //const l2 = lambda * w;
 
         const fractional_p = config.regDim;
         const l_p = lambda * std.math.sign(w) * std.math.pow(f64, @abs(w), fractional_p - 1);
@@ -286,31 +283,15 @@ pub fn applyGradients(self: *Self, config: anytype) void {
 
         const awdiff = wema - fw;
         const gdiff = 1.0 / (@abs(wema) + @abs(g - awdiff));
-        g *= gdiff;
 
-        const beta1 = 0.9;
-        const beta2 = 0.999;
-        // update the first moment (momentum)
-        const m: f64 = beta1 * self.weights.moment[i] + (1.0 - beta1) * g;
-        // update the second moment (RMSprop)
-        const v: f64 = beta2 * self.weights.moment2[i] + (1.0 - beta2) * g * g;
-        // bias-correct both moments
-        const m_hat: f64 = m / (1.0 - std.math.pow(f64, beta1, ep));
-        const v_hat: f64 = v / (1.0 - std.math.pow(f64, beta2, ep));
-
-        // update
-        self.weights.moment[i] = m;
-        self.weights.moment2[i] = v;
-        const sqrt_v_hat: f64 = std.math.sqrt(v_hat);
-        const tmp = lr * (m_hat / (sqrt_v_hat + 1e-8) + lr * lambda * w);
-        self.weights.data[i] -= tmp;
-
-        _ = .{ gdiff, fw };
-        //self.weights.data[i] -= lr * g * gdiff; // * mdiff;
-        self.weights.EMA[i] += (smoothing * (w - wema));
-        //self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
+        _ = .{ gdiff, fw, &g, l_p };
+        self.weights.data[i] -= lr * g * gdiff; // * mdiff;
+        self.weights.EMA[i] += ((smoothing / gdiff) * (w - wema));
+        self.weights.moment[i] += 0.5 * (@abs(abng) - self.weights.moment[i]);
     }
     //1.0625
+
+    //self.weights.data = utils.autoclip(self.weights.data, self.maxAvgGrad);
     self.weights.data = utils.normalize(self.weights.data, 1 + inputFract, 0, 1);
 
     self.biases.grad = utils.normalize(self.biases.grad, 2 - inputFract, 0, 1);
@@ -327,14 +308,14 @@ pub fn applyGradients(self: *Self, config: anytype) void {
     }
     const mstat = utils.stats(self.weights.moment);
     _ = .{mstat};
-    if (self.maxAvgGrad < wgstat.avgabs) {
-        self.maxAvgGrad = wgstat.avgabs;
+    if (self.maxAvgGrad < wstat.range) {
+        self.maxAvgGrad += 0.5 * (wstat.range - self.maxAvgGrad);
         //TODO: test this:
         //@memcpy(self.weights.data, self.weights.EMA);
         //@memcpy(self.weights.moment, self.weights.grad);
     } else {
         //self.maxAvgGrad -= mstat.avgabs;
         //TODO: test this:
-        self.maxAvgGrad -= wgstat.avgabs;
+        //self.maxAvgGrad -= wgstat.avgabs;
     }
 }

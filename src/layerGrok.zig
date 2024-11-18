@@ -304,14 +304,12 @@ pub fn applyGradients(self: *Self, config: anytype) void {
         //const gdiff = 1.0 / (0.5 + @abs(g - awdiff));
         const gdiff = 1.0 / ((@abs(wema)) + @abs(g - awdiff));
 
-        const moment = @abs(g / self.weights.moment[i]);
-        const mdiff = @sqrt(1.0 / moment);
         //if (self.weights.moment[i] < 1e-3) {
         //    self.weights.moment[i] = @abs(self.weights.data[i]);
         //    self.weights.data[i] = 0;
         //    std.debug.print("reinit", .{});
         //}
-        _ = .{ gdiff, mdiff };
+        _ = .{gdiff};
         self.weights.data[i] -= lr * g * gdiff;
         self.weights.EMA[i] += (smoothing * (w - wema));
         self.weights.moment[i] += 0.5 * (g - self.weights.moment[i]);

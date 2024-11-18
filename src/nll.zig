@@ -24,42 +24,48 @@ pub fn init(
 }
 const log = false;
 pub fn getLoss(self: *Self, inputs: []f64, targets: []u8, network: []lt.Layer, config: anytype) !void {
-    const regDim = config.regDim;
-
-    const lambda = config.lambda;
-
     std.debug.assert(targets.len == self.batchSize);
     std.debug.assert(inputs.len == self.batchSize * self.inputSize);
 
     //_ = (lambda / 2.0) * l2_sum;
 
+    var a_sum: f64 = 0.0;
     var lp_sum: f64 = 0.0;
-    _ = .{ &lp_sum, network };
-    for (network) |layer| {
+
+    //std.debug.print("\n {}", .{network.len});
+    for (network, 0..) |layer, li| {
+        //std.debug.print(" {}", .{li});
         switch (layer) {
             inline else => |lfilt| {
-                if (@hasField(@TypeOf(lfilt), "weights")) {
-                    if (@hasField(@TypeOf(lfilt.weights), "data")) {
-                        if (log)
-                            std.debug.print("lgrok\n", .{});
-                        for (lfilt.weights.data) |weight| {
-                            lp_sum += std.math.pow(f64, @abs(weight), regDim);
-                        }
-                    } else {
-                        if (log)
-                            std.debug.print("not lg\n", .{});
-                        for (lfilt.weights) |weight| {
-                            lp_sum += std.math.pow(f64, @abs(weight), regDim);
-                        }
+                if (!@hasField(@TypeOf(lfilt), "weights")) continue;
+
+                const weightCount = @as(f64, @floatFromInt(lfilt.inputSize * lfilt.outputSize));
+                const osize = @as(f64, @floatFromInt(lfilt.outputSize));
+                if (@hasField(@TypeOf(lfilt), "fwd_out")) {
+                    for (lfilt.fwd_out, 0..) |a, oi| {
+                        const nw = @as(f64, @floatFromInt(network.len));
+                        const lin = nw - @as(f64, @floatFromInt(li));
+                        const oin = @as(f64, @floatFromInt(oi));
+                        _ = .{ oin, lin };
+                        //std.debug.print(" {}", .{li});
+                        const poswf = lin / nw; // (oin + 1);
+                        a_sum += @abs((a * poswf) / osize);
                     }
-                } else {
-                    if (log)
-                        std.debug.print("no weights on {}\n", .{@TypeOf(lfilt)});
+                }
+                const weights = if (@hasField(@TypeOf(lfilt.weights), "data"))
+                    lfilt.weights.data
+                else
+                    lfilt.weights;
+
+                for (weights) |weight| {
+                    lp_sum += std.math.pow(f64, @abs(weight / weightCount), config.regDim);
                 }
             },
         }
+        _ = .{a_sum};
     }
-    const lp_term = (lambda / regDim) * lp_sum; // Equivalent to the Lp penalty term
+    const aterm = config.lambda * a_sum; // Equivalent to the Lp penalty term
+    const lp_term = (config.lambda / config.regDim) * lp_sum + aterm;
     //const l2_term = (lambda / 2.0) * l2_sum;
 
     //todo make assert right.
